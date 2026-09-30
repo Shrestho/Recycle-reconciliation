@@ -1,0 +1,6 @@
+{
+  "name": "Astech Reconcile & Recycle Pro",
+  "description": "Multi-Unit Tally ERP Outwards vs Mixing vs Production Reconciliation & SKU Regrind Analysis PWA with Google Sheets Sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
