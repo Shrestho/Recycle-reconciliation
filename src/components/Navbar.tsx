@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Factory,
   BarChart3,
@@ -13,8 +13,10 @@ import {
   CloudOff,
   RefreshCw,
   Share2,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
-import { UnitType, GoogleSheetConfig, ProductionSection } from '../types';
+import { UnitType, GoogleSheetConfig, ProductionSection, DailyReportSnapshot } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface NavbarProps {
@@ -32,6 +34,9 @@ interface NavbarProps {
   onOpenSheetSettings: () => void;
   onOpenPrint: () => void;
   onOpenAccessLink: () => void;
+  onClearAllData?: () => void;
+  savedReportsCount?: number;
+  loadedArchiveSnapshot?: DailyReportSnapshot | null;
   googleSheetConfig: GoogleSheetConfig;
   isSyncing: boolean;
   hasUnsavedChanges: boolean;
@@ -52,10 +57,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSheetSettings,
   onOpenPrint,
   onOpenAccessLink,
+  onClearAllData,
+  savedReportsCount = 0,
+  loadedArchiveSnapshot,
   googleSheetConfig,
   isSyncing,
   hasUnsavedChanges,
 }) => {
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
   return (
     <header className="sticky top-0 z-40 bg-slate-900/95 border-b border-slate-800 backdrop-blur-md">
       {/* Top Banner with Brand and Controls */}
@@ -74,6 +84,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-950 text-cyan-300 font-semibold border border-cyan-800/60 uppercase tracking-wider">
                   ERP & Recycle
                 </span>
+                {loadedArchiveSnapshot && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold animate-pulse">
+                    Archive Mode
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400">
                 Tally ERP Outwards vs Mixing vs Production RM Reconciliation
@@ -178,14 +193,53 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden sm:inline">Import</span>
             </button>
 
-            {/* History Button */}
+            {/* History Button with Count Badge */}
             <button
               onClick={onOpenHistory}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition"
-              title="View Daily Saved Reports History"
+              className="relative p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition"
+              title="View Daily Saved Reports History (Archives)"
             >
-              <History className="w-4 h-4" />
+              <History className="w-4 h-4 text-blue-400" />
+              {savedReportsCount > 0 && (
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[9px] font-bold shadow-xs">
+                  {savedReportsCount}
+                </span>
+              )}
             </button>
+
+            {/* Clear All Data Button */}
+            {onClearAllData && (
+              <div className="relative">
+                {showClearConfirm ? (
+                  <div className="flex items-center gap-1.5 bg-rose-950/90 border border-rose-700 p-1 rounded-xl shadow-xl">
+                    <span className="text-[10px] text-rose-300 font-semibold px-1">Clear all?</span>
+                    <button
+                      onClick={() => {
+                        onClearAllData();
+                        setShowClearConfirm(false);
+                      }}
+                      className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold rounded-lg transition"
+                    >
+                      Clear
+                    </button>
+                    <button
+                      onClick={() => setShowClearConfirm(false)}
+                      className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] rounded-lg transition"
+                    >
+                      X
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowClearConfirm(true)}
+                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/70 border border-slate-700 hover:border-rose-800 text-slate-400 hover:text-rose-400 transition"
+                    title="Clear all demo/working data and reset dashboard"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Print / PDF Button */}
             <button

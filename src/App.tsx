@@ -23,7 +23,7 @@ import { HistoryModal } from './components/HistoryModal';
 import { PrintReportModal } from './components/PrintReportModal';
 import { AccessLinkModal } from './components/AccessLinkModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { CheckCircle2, AlertTriangle, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, X, History, Trash2, ArrowRight } from 'lucide-react';
 
 export default function App() {
   // Navigation & Date
@@ -32,7 +32,7 @@ export default function App() {
   const [selectedSection, setSelectedSection] = useState<ProductionSection>('All');
   const [selectedDate, setSelectedDate] = useState<string>('2026-10-01');
 
-  // Core Datasets
+  // Core Datasets (empty [] by default)
   const [productionData, setProductionData] = useState<ProductionItem[]>(() => StorageService.getProductionData());
   const [tallyOutwards, setTallyOutwards] = useState<TallyOutwardItem[]>(() => StorageService.getTallyOutwards());
   const [regrindBalance, setRegrindBalance] = useState<RegrindBalanceItem[]>(() => StorageService.getRegrindBalance());
@@ -42,6 +42,9 @@ export default function App() {
     () => StorageService.getCustomStocks(selectedDate)
   );
 
+  // Active Loaded Archive Snapshot (null in live edit mode)
+  const [loadedArchiveSnapshot, setLoadedArchiveSnapshot] = useState<DailyReportSnapshot | null>(null);
+
   // Google Sheet Configuration & Sync state
   const [googleSheetConfig, setGoogleSheetConfig] = useState<GoogleSheetConfig>(() =>
     StorageService.getGoogleSheetConfig()
@@ -49,7 +52,7 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Daily Saved Reports History
+  // Daily Saved Reports History (empty by default)
   const [savedReports, setSavedReports] = useState<DailyReportSnapshot[]>(() =>
     StorageService.getSavedDailyReports()
   );
@@ -82,6 +85,10 @@ export default function App() {
     closing: number,
     notes?: string
   ) => {
+    // If viewing a locked archive, editing automatically transitions back to live mode
+    if (loadedArchiveSnapshot) {
+      setLoadedArchiveSnapshot(null);
+    }
     const key = `${unit}_${materialName}`;
     const next = { opening, closing, notes };
     setCustomStocks(prev => ({
@@ -92,17 +99,23 @@ export default function App() {
     setHasUnsavedChanges(true);
   };
 
-  // Compute live Reconciliation rows
+  // Compute live Reconciliation rows or use snapshot rows if an archive is loaded
   const reconciliationRows: ReconciliationRow[] = useMemo(() => {
+    if (loadedArchiveSnapshot) {
+      return loadedArchiveSnapshot.reconciliationRows;
+    }
     return computeReconciliationRows(tallyOutwards, productionData, customStocks);
-  }, [tallyOutwards, productionData, customStocks]);
+  }, [loadedArchiveSnapshot, tallyOutwards, productionData, customStocks]);
 
-  // Compute live SKU Wise Regrind vs Rejection rows
+  // Compute live SKU Wise Regrind vs Rejection rows or use snapshot rows if an archive is loaded
   const skuRegrindRows: SkuRegrindVsRejectionItem[] = useMemo(() => {
+    if (loadedArchiveSnapshot) {
+      return loadedArchiveSnapshot.skuRegrindRows;
+    }
     return computeSkuRegrindVsRejection(regrindBalance, productionData, selectedSection);
-  }, [regrindBalance, productionData, selectedSection]);
+  }, [loadedArchiveSnapshot, regrindBalance, productionData, selectedSection]);
 
-  // Build current snapshot object
+  // Build current snapshot object for saving
   const currentSnapshot: DailyReportSnapshot = useMemo(() => {
     const filteredRec = reconciliationRows.filter(
       r => selectedUnit === 'All' || r.unit === selectedUnit
@@ -154,7 +167,7 @@ export default function App() {
     setSavedReports(StorageService.getSavedDailyReports());
     setHasUnsavedChanges(false);
 
-    showToast(`Daily Report for ${selectedDate} (${selectedUnit}) saved locally!`, 'success');
+    showToast(`Daily Report for ${selectedDate} (${selectedUnit}) saved to archives!`, 'success');
 
     // Auto-sync to Google Sheet if configured
     if (googleSheetConfig.webhookUrl && googleSheetConfig.autoSync) {
@@ -177,30 +190,90 @@ export default function App() {
     }
   };
 
-  // Load official sample datasets
+  // Clear all demo data, working records, and archives
+  const handleClearAllData = () => {
+    StorageService.clearAllData();
+    setProductionData([]);
+    setTallyOutwards([]);
+    setRegrindBalance([]);
+    setCustomStocks({});
+    setSavedReports([]);
+    setLoadedArchiveSnapshot(null);
+    setHasUnsavedChanges(false);
+    showToast('All demo data, archives, and working records cleared. System is clean!', 'success');
+  };
+
+  // Load official sample datasets (optional for preview)
   const handleLoadSampleData = () => {
-    StorageService.resetToDefaultData();
-    setProductionData(StorageService.getProductionData());
-    setTallyOutwards(StorageService.getTallyOutwards());
-    setRegrindBalance(StorageService.getRegrindBalance());
+    const loaded = StorageService.loadSampleDemoData();
+    setProductionData(loaded.production);
+    setTallyOutwards(loaded.tally);
+    setRegrindBalance(loaded.regrind);
     setSelectedDate('2026-10-01');
     setSelectedUnit('All');
     setSelectedSection('All');
+    setSavedReports(StorageService.getSavedDailyReports());
+    setLoadedArchiveSnapshot(null);
     setCustomStocks(StorageService.getCustomStocks('2026-10-01'));
-    showToast('Loaded 01-Oct-2026 official operational datasets!', 'success');
+    showToast('Loaded 01-Oct-2026 sample operational datasets and archives!', 'success');
   };
 
-  // Restore snapshot from history
+  // Restore snapshot from history into Dashboard
   const handleSelectHistoryReport = (rep: DailyReportSnapshot) => {
+    setLoadedArchiveSnapshot(rep);
     setSelectedDate(rep.date);
     setSelectedUnit(rep.unit);
-    showToast(`Loaded archive for ${rep.date} (${rep.unit})`, 'info');
+    setCurrentTab('dashboard');
+    showToast(`Loaded archive for ${rep.date} (${rep.unit}) into Dashboard`, 'info');
   };
 
+  // Unload snapshot back to live edit mode
+  const handleUnloadSnapshot = () => {
+    setLoadedArchiveSnapshot(null);
+    showToast('Exited archive view. Showing live working view.', 'info');
+  };
+
+  // Delete an archived report - UPDATES DASHBOARD AND REPORTS IMMEDIATELY
   const handleDeleteHistoryReport = (id: string) => {
+    const repToDelete = savedReports.find(r => r.id === id);
     StorageService.deleteDailyReport(id);
-    setSavedReports(StorageService.getSavedDailyReports());
-    showToast('Archived report deleted.', 'info');
+    const updatedReports = StorageService.getSavedDailyReports();
+    setSavedReports(updatedReports);
+
+    // If the active loaded snapshot was this report, unload and reset
+    if (loadedArchiveSnapshot?.id === id) {
+      setLoadedArchiveSnapshot(null);
+      // Clear working dataset for that date so dashboard reflects 0
+      setProductionData([]);
+      setTallyOutwards([]);
+      setRegrindBalance([]);
+      setCustomStocks({});
+      StorageService.clearAllData();
+    } else if (repToDelete && repToDelete.date === selectedDate) {
+      // If the report being deleted is for the current selected date, also reset working data
+      StorageService.clearCustomStocksForDate(selectedDate);
+      setCustomStocks({});
+      setProductionData([]);
+      setTallyOutwards([]);
+      setRegrindBalance([]);
+      StorageService.clearAllData();
+    }
+
+    showToast(`Archived report deleted. Dashboard and reports updated.`, 'info');
+  };
+
+  // Clear all archives - UPDATES DASHBOARD AND ALL TABS TO CLEAN STATE
+  const handleClearAllHistoryReports = () => {
+    StorageService.clearAllDailyReports();
+    StorageService.clearAllData();
+    setSavedReports([]);
+    setLoadedArchiveSnapshot(null);
+    setProductionData([]);
+    setTallyOutwards([]);
+    setRegrindBalance([]);
+    setCustomStocks({});
+    setHasUnsavedChanges(false);
+    showToast('All daily archives cleared. Dashboard and reports updated to clean state.', 'info');
   };
 
   return (
@@ -215,12 +288,18 @@ export default function App() {
         onSectionChange={setSelectedSection}
         selectedDate={selectedDate}
         onDateChange={setSelectedDate}
-        onOpenImport={() => setIsImportOpen(true)}
+        onOpenImport={() => {
+          if (loadedArchiveSnapshot) setLoadedArchiveSnapshot(null);
+          setIsImportOpen(true);
+        }}
         onSaveReport={handleSaveDailyReport}
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenSheetSettings={() => setIsSheetSettingsOpen(true)}
         onOpenPrint={() => setIsPrintOpen(true)}
         onOpenAccessLink={() => setIsAccessLinkOpen(true)}
+        onClearAllData={handleClearAllData}
+        savedReportsCount={savedReports.length}
+        loadedArchiveSnapshot={loadedArchiveSnapshot}
         googleSheetConfig={googleSheetConfig}
         isSyncing={isSyncing}
         hasUnsavedChanges={hasUnsavedChanges}
@@ -235,8 +314,19 @@ export default function App() {
             selectedUnit={selectedUnit}
             selectedSection={selectedSection}
             selectedDate={selectedDate}
+            loadedArchiveSnapshot={loadedArchiveSnapshot}
+            savedReports={savedReports}
             onNavigateToTab={setCurrentTab}
-            onOpenImport={() => setIsImportOpen(true)}
+            onOpenImport={() => {
+              if (loadedArchiveSnapshot) setLoadedArchiveSnapshot(null);
+              setIsImportOpen(true);
+            }}
+            onOpenHistory={() => setIsHistoryOpen(true)}
+            onUnloadSnapshot={handleUnloadSnapshot}
+            onDeleteSnapshot={handleDeleteHistoryReport}
+            onLoadSnapshot={handleSelectHistoryReport}
+            onLoadSampleData={handleLoadSampleData}
+            onClearAllData={handleClearAllData}
           />
         )}
 
@@ -281,10 +371,18 @@ export default function App() {
             </button>
             <span>•</span>
             <button
+              onClick={handleClearAllData}
+              className="text-rose-400 hover:text-rose-300 underline font-medium"
+              title="Clear all demo data and archives"
+            >
+              Clear All Data
+            </button>
+            <span>•</span>
+            <button
               onClick={handleLoadSampleData}
               className="hover:text-slate-300 underline"
             >
-              Reset 01-Oct Data
+              Load Demo Sample
             </button>
           </div>
         </div>
@@ -294,23 +392,110 @@ export default function App() {
       <ImportModal
         isOpen={isImportOpen}
         onClose={() => setIsImportOpen(false)}
-        onImportProduction={items => {
-          setProductionData(items);
-          StorageService.saveProductionData(items);
+        onImportProduction={(items, mode = 'merge') => {
+          if (loadedArchiveSnapshot) setLoadedArchiveSnapshot(null);
+          if (mode === 'replace') {
+            setProductionData(items);
+            StorageService.saveProductionData(items);
+          } else {
+            setProductionData(prev => {
+              const map = new Map<string, ProductionItem>();
+              prev.forEach(p => map.set(`${p.unit}_${p.machineSerial || p.productName}`, p));
+              items.forEach(p => map.set(`${p.unit}_${p.machineSerial || p.productName}`, p));
+              const combined = Array.from(map.values());
+              StorageService.saveProductionData(combined);
+              return combined;
+            });
+          }
           setHasUnsavedChanges(true);
-          showToast(`Imported ${items.length} production items!`, 'success');
+          showToast(`Processed ${items.length} production items!`, 'success');
         }}
-        onImportTally={items => {
-          setTallyOutwards(items);
-          StorageService.saveTallyOutwards(items);
+        onImportTally={(items, mode = 'merge') => {
+          if (loadedArchiveSnapshot) setLoadedArchiveSnapshot(null);
+          if (mode === 'replace') {
+            setTallyOutwards(items);
+            StorageService.saveTallyOutwards(items);
+          } else {
+            setTallyOutwards(prev => {
+              const map = new Map<string, TallyOutwardItem>();
+              prev.forEach(t => map.set(`${t.unit}_${t.materialName}`, t));
+              items.forEach(t => map.set(`${t.unit}_${t.materialName}`, t));
+              const combined = Array.from(map.values());
+              StorageService.saveTallyOutwards(combined);
+              return combined;
+            });
+          }
           setHasUnsavedChanges(true);
-          showToast(`Imported ${items.length} Tally outward records!`, 'success');
+          showToast(`Processed ${items.length} Tally outward records!`, 'success');
         }}
-        onImportRegrind={items => {
-          setRegrindBalance(items);
-          StorageService.saveRegrindBalance(items);
+        onImportRegrind={(items, mode = 'merge') => {
+          if (loadedArchiveSnapshot) setLoadedArchiveSnapshot(null);
+          if (mode === 'replace') {
+            setRegrindBalance(items);
+            StorageService.saveRegrindBalance(items);
+          } else {
+            setRegrindBalance(prev => {
+              const map = new Map<string, RegrindBalanceItem>();
+              prev.forEach(r => map.set(`${r.skuName}_${r.color}`, r));
+              items.forEach(r => map.set(`${r.skuName}_${r.color}`, r));
+              const combined = Array.from(map.values());
+              StorageService.saveRegrindBalance(combined);
+              return combined;
+            });
+          }
           setHasUnsavedChanges(true);
-          showToast(`Imported ${items.length} Regrind balance records!`, 'success');
+          showToast(`Processed ${items.length} Regrind balance records!`, 'success');
+        }}
+        onImportBatch={batch => {
+          if (loadedArchiveSnapshot) setLoadedArchiveSnapshot(null);
+          if (batch.mode === 'replace') {
+            if (batch.productionItems.length > 0) {
+              setProductionData(batch.productionItems);
+              StorageService.saveProductionData(batch.productionItems);
+            }
+            if (batch.tallyItems.length > 0) {
+              setTallyOutwards(batch.tallyItems);
+              StorageService.saveTallyOutwards(batch.tallyItems);
+            }
+            if (batch.regrindItems.length > 0) {
+              setRegrindBalance(batch.regrindItems);
+              StorageService.saveRegrindBalance(batch.regrindItems);
+            }
+          } else {
+            // MERGE / COMBINE MODE (e.g. Blow + Injection, Unit-1 + Unit-2)
+            if (batch.productionItems.length > 0) {
+              setProductionData(prev => {
+                const map = new Map<string, ProductionItem>();
+                prev.forEach(p => map.set(`${p.unit}_${p.machineSerial || p.productName}`, p));
+                batch.productionItems.forEach(p => map.set(`${p.unit}_${p.machineSerial || p.productName}`, p));
+                const combined = Array.from(map.values());
+                StorageService.saveProductionData(combined);
+                return combined;
+              });
+            }
+            if (batch.tallyItems.length > 0) {
+              setTallyOutwards(prev => {
+                const map = new Map<string, TallyOutwardItem>();
+                prev.forEach(t => map.set(`${t.unit}_${t.materialName}`, t));
+                batch.tallyItems.forEach(t => map.set(`${t.unit}_${t.materialName}`, t));
+                const combined = Array.from(map.values());
+                StorageService.saveTallyOutwards(combined);
+                return combined;
+              });
+            }
+            if (batch.regrindItems.length > 0) {
+              setRegrindBalance(prev => {
+                const map = new Map<string, RegrindBalanceItem>();
+                prev.forEach(r => map.set(`${r.skuName}_${r.color}`, r));
+                batch.regrindItems.forEach(r => map.set(`${r.skuName}_${r.color}`, r));
+                const combined = Array.from(map.values());
+                StorageService.saveRegrindBalance(combined);
+                return combined;
+              });
+            }
+          }
+          setHasUnsavedChanges(true);
+          showToast(`Successfully imported and combined all selected files!`, 'success');
         }}
         onLoadSampleData={handleLoadSampleData}
         selectedUnit={selectedUnit}
@@ -333,8 +518,10 @@ export default function App() {
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
         reports={savedReports}
+        activeSnapshotId={loadedArchiveSnapshot?.id}
         onSelectReport={handleSelectHistoryReport}
         onDeleteReport={handleDeleteHistoryReport}
+        onClearAllReports={handleClearAllHistoryReports}
       />
 
       <PrintReportModal
