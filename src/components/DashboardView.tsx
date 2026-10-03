@@ -17,12 +17,14 @@ import {
   ReconciliationRow,
   SkuRegrindVsRejectionItem,
   UnitType,
+  ProductionSection,
 } from '../types';
 
 interface DashboardViewProps {
   reconciliationRows: ReconciliationRow[];
   skuRegrindRows: SkuRegrindVsRejectionItem[];
   selectedUnit: UnitType;
+  selectedSection?: ProductionSection;
   selectedDate: string;
   onNavigateToTab: (tab: 'reconciliation' | 'regrind') => void;
   onOpenImport: () => void;
@@ -32,6 +34,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   reconciliationRows,
   skuRegrindRows,
   selectedUnit,
+  selectedSection = 'All',
   selectedDate,
   onNavigateToTab,
   onOpenImport,
@@ -39,6 +42,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Filter by Unit
   const filteredRec = reconciliationRows.filter(
     r => selectedUnit === 'All' || r.unit === selectedUnit
+  );
+
+  // Filter regrind items by Section if set
+  const filteredSkuRows = skuRegrindRows.filter(
+    s => selectedSection === 'All' || !s.section || s.section === selectedSection
   );
 
   // Compute Reconciliation KPIs
@@ -56,9 +64,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const onlyAppCount = filteredRec.filter(r => r.status === 'Only in App').length;
 
   // Compute Regrind vs Rejection KPIs
-  const totalRejection = skuRegrindRows.reduce((sum, s) => sum + s.productionRejectionKg, 0);
-  const totalRegrindProduced = skuRegrindRows.reduce((sum, s) => sum + s.regrindProducedKg, 0);
-  const totalRegrindConsumed = skuRegrindRows.reduce((sum, s) => sum + s.periodConsumedKg, 0);
+  const totalRejection = filteredSkuRows.reduce((sum, s) => sum + s.productionRejectionKg, 0);
+  const totalRegrindProduced = filteredSkuRows.reduce((sum, s) => sum + s.regrindProducedKg, 0);
+  const totalRegrindConsumed = filteredSkuRows.reduce((sum, s) => sum + s.periodConsumedKg, 0);
   const totalCrushedDelta = totalRegrindProduced - totalRejection;
   const overallRecoveryRate = totalRejection > 0 ? (totalRegrindProduced / totalRejection) * 100 : 0;
 
@@ -71,7 +79,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   });
 
   // Top 6 SKUs for Regrind vs Rejection
-  const topSkus = skuRegrindRows.slice(0, 6);
+  const topSkus = filteredSkuRows.slice(0, 6);
 
   return (
     <div className="space-y-6">

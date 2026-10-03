@@ -3,7 +3,6 @@ import {
   ProductionItem,
   TallyOutwardItem,
   RegrindBalanceItem,
-  ReconciliationRow,
   MaterialCategory,
 } from '../types';
 
@@ -12,7 +11,10 @@ import {
  */
 export function cleanString(val: any): string {
   if (val === null || val === undefined) return '';
-  return String(val).trim().replace(/^["']|["']$/g, '');
+  return String(val)
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/\r\n|\r|\n/g, ' ');
 }
 
 /**
@@ -32,7 +34,7 @@ export function cleanNumber(val: any): number {
  */
 export function categorizeMaterial(name: string): MaterialCategory {
   const upper = name.toUpperCase();
-  if (upper.includes('FILLER') || upper.includes('FMB') || upper.includes('GGR-115')) {
+  if (upper.includes('FILLER') || upper.includes('FMB') || upper.includes('GGR-115') || upper.includes('SODIUM FILLER')) {
     return 'Filler MB (FMB)';
   }
   if (
@@ -40,9 +42,12 @@ export function categorizeMaterial(name: string): MaterialCategory {
     upper.includes('MB ') ||
     upper.includes('M/B') ||
     upper.includes('MASTER BATCH') ||
+    upper.includes('MASTERBATCH') ||
     upper.includes('C.M.B') ||
     upper.includes('ONCOLOR') ||
-    upper.includes('SAM WHITE')
+    upper.includes('SAM WHITE') ||
+    upper.includes('WHITE CP') ||
+    upper.includes('CP-')
   ) {
     return 'Masterbatch (MB)';
   }
@@ -55,9 +60,11 @@ export function categorizeMaterial(name: string): MaterialCategory {
     upper.includes('BE 961') ||
     upper.includes('AW564') ||
     upper.includes('RE420MO') ||
+    upper.includes('RE 420') ||
     upper.includes('ASPET') ||
     upper.includes('RESIN') ||
-    upper.includes('MARLEX')
+    upper.includes('MARLEX') ||
+    upper.includes('REPOL')
   ) {
     return 'Raw Material (RM)';
   }
@@ -65,7 +72,7 @@ export function categorizeMaterial(name: string): MaterialCategory {
 }
 
 /**
- * Parses Production RM Consumption & Rejection CSV (allows extra columns)
+ * Parses Production Blow / Injection CSV (tolerant to header rows and extra columns)
  */
 export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Unit-2' = 'Unit-1'): ProductionItem[] {
   const results = Papa.parse<any[]>(csvText, {
@@ -75,11 +82,14 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
   const rows = results.data;
   if (!rows || rows.length < 2) return [];
 
-  // Find header row (looks for "Product Name" or "RM Consumption" or "Total Rejection")
+  // Find header row (looks for "Item Name" or "Product Name" or "RM Grade" or "Rejection")
   let headerIndex = -1;
-  for (let i = 0; i < Math.min(10, rows.length); i++) {
-    const rowStr = rows[i].map(c => String(c).toLowerCase()).join(' ');
-    if (rowStr.includes('product') || rowStr.includes('consumption') || rowStr.includes('rejection')) {
+  for (let i = 0; i < Math.min(15, rows.length); i++) {
+    const rowStr = rows[i].map(c => cleanString(c).toLowerCase()).join(' ');
+    if (
+      (rowStr.includes('item name') || rowStr.includes('product name') || rowStr.includes('item')) &&
+      (rowStr.includes('rm') || rowStr.includes('grade') || rowStr.includes('rejection') || rowStr.includes('m/c'))
+    ) {
       headerIndex = i;
       break;
     }
@@ -93,15 +103,19 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
     return header.findIndex(h => names.some(n => h.includes(n.toLowerCase())));
   };
 
-  const prodCol = getCol(['product name', 'product', 'item name', 'sku']);
-  const colourCol = getCol(['colour', 'color']);
-  const mbGradeCol = getCol(['mb grade', 'masterbatch', 'mb']);
-  const rmCol = getCol(['rm', 'raw material', 'resin', 'grade']);
-  const fillerMbCol = getCol(['filler mb %', 'filler mb', 'fmb %', 'filler %']);
-  const mbCol = getCol(['mb %', 'mb percent']);
-  const rmConsCol = getCol(['total rm consumption', 'rm consumption', 'consumption (kg)', 'consumption']);
-  const mixRetCol = getCol(['mixing return', 'return(kg)', 'return']);
-  const rejCol = getCol(['total rejection', 'rejection (kg)', 'rejection', 'reject']);
+  const itemCol = getCol(['item name', 'product name', 'product', 'item', 'sku']);
+  const colourCol = getCol(['color', 'colour']);
+  const mcSerialCol = getCol(['new m/c serial no.', 'm/c serial', 'mc serial', 'serial no', 'machine']);
+  const rmGradeCol = getCol(['rm grade', 'rm\ngrade', 'rm', 'raw material']);
+  const mbInnerCol = getCol(['mb grade inner', 'mb\ngrade inner', 'inner mb', 'mb inner']);
+  const mbOuterCol = getCol(['mb grade outer', 'mb\ngrade outer', 'outer mb', 'mb outer']);
+  const mbGradeCol = getCol(['mb grade', 'mb\ngrade', 'masterbatch']);
+  const rmPercentCol = getCol(['r/m %', 'rm %', 'rm percent']);
+  const fmbPercentCol = getCol(['fmb %', 'filler mb %', 'filler %']);
+  const mbPercentCol = getCol(['mb %', 'mb percent']);
+  const rejCol = getCol(['rejection (kg)', 'total rejection (kg)', 'total rej', 'rejection']);
+  const matConsCol = getCol(['material consumption (kg)', 'total rm consumption', 'consumption (kg)', 'consumption']);
+  const mixRetCol = getCol(['mixing return (kg)', 'mixing return', 'return']);
   const unitCol = getCol(['unit']);
 
   const parsedItems: ProductionItem[] = [];
@@ -110,35 +124,68 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
     const row = rows[i];
     if (!row || row.length === 0) continue;
 
-    const productName = prodCol !== -1 ? cleanString(row[prodCol]) : '';
+    const itemName = itemCol !== -1 ? cleanString(row[itemCol]) : '';
     const colour = colourCol !== -1 ? cleanString(row[colourCol]) : '';
-    const rm = rmCol !== -1 ? cleanString(row[rmCol]) : '';
-    const mbGrade = mbGradeCol !== -1 ? cleanString(row[mbGradeCol]) : '';
-    const totalRmConsumption = rmConsCol !== -1 ? cleanNumber(row[rmConsCol]) : 0;
-    const mixingReturn = mixRetCol !== -1 ? cleanNumber(row[mixRetCol]) : 0;
+    const mcSerial = mcSerialCol !== -1 ? cleanString(row[mcSerialCol]) : '';
+    const rmGrade = rmGradeCol !== -1 ? cleanString(row[rmGradeCol]) : '';
+    const mbInner = mbInnerCol !== -1 ? cleanString(row[mbInnerCol]) : '';
+    const mbOuter = mbOuterCol !== -1 ? cleanString(row[mbOuterCol]) : '';
+    const mbGrade = mbGradeCol !== -1 ? cleanString(row[mbGradeCol]) : mbInner || mbOuter;
+    const rmPercent = rmPercentCol !== -1 ? cleanNumber(row[rmPercentCol]) : 0;
+    const fmbPercent = fmbPercentCol !== -1 ? cleanNumber(row[fmbPercentCol]) : 0;
+    const mbPercent = mbPercentCol !== -1 ? cleanNumber(row[mbPercentCol]) : 0;
     const totalRejection = rejCol !== -1 ? cleanNumber(row[rejCol]) : 0;
-    const rowUnit = unitCol !== -1 && cleanString(row[unitCol]) ? (cleanString(row[unitCol]) as any) : defaultUnit;
+    const totalRmConsumption = matConsCol !== -1 ? cleanNumber(row[matConsCol]) : 0;
+    const mixingReturn = mixRetCol !== -1 ? cleanNumber(row[mixRetCol]) : 0;
 
-    // Ignore completely empty rows or trailing summary rows
-    if (!productName && !rm && totalRmConsumption === 0 && totalRejection === 0) {
+    // Detect unit from machine code or row (e.g. BM-U1-01 -> Unit-1, BM-U2-11 -> Unit-2)
+    let detectedUnit = defaultUnit;
+    if (mcSerial.toUpperCase().includes('U1')) {
+      detectedUnit = 'Unit-1';
+    } else if (mcSerial.toUpperCase().includes('U2')) {
+      detectedUnit = 'Unit-2';
+    } else if (unitCol !== -1 && cleanString(row[unitCol])) {
+      const uStr = cleanString(row[unitCol]);
+      if (/Unit-2/i.test(uStr) || /Unit 2/i.test(uStr)) detectedUnit = 'Unit-2';
+      else if (/Unit-1/i.test(uStr) || /Unit 1/i.test(uStr)) detectedUnit = 'Unit-1';
+    }
+
+    // Detect section: Blow vs Injection
+    let section: 'Blow' | 'Injection' | 'Other' = 'Blow';
+    const mcUpper = mcSerial.toUpperCase();
+    if (mcUpper.includes('IBM') || mcUpper.includes('INJ') || itemName.toLowerCase().includes('cap') || itemName.toLowerCase().includes('lid')) {
+      section = 'Injection';
+    } else if (mcUpper.includes('BM') || itemName.toLowerCase().includes('bottle') || itemName.toLowerCase().includes('jar')) {
+      section = 'Blow';
+    }
+
+    // Skip empty or summary rows
+    if (!itemName && !rmGrade && totalRejection === 0 && totalRmConsumption === 0) {
       continue;
     }
-    if (productName.toLowerCase().includes('total') || productName.toLowerCase().includes('grand total')) {
+    if (itemName.toLowerCase().includes('total') || itemName.toLowerCase().includes('grand total') || itemName.toLowerCase() === 'no mold') {
       continue;
     }
 
     parsedItems.push({
       id: `prod-${Date.now()}-${i}`,
-      productName: productName || 'Unnamed SKU',
-      colour,
-      mbGrade,
-      rm,
-      fillerMbPercent: fillerMbCol !== -1 ? cleanNumber(row[fillerMbCol]) : 0,
-      mbPercent: mbCol !== -1 ? cleanNumber(row[mbCol]) : 0,
+      productName: itemName || 'Unnamed Item',
+      itemName: itemName || 'Unnamed Item',
+      colour: colour || 'Standard',
+      machineSerial: mcSerial,
+      rmGrade: rmGrade || 'Standard RM',
+      rm: rmGrade || 'Standard RM',
+      mbGradeInner: mbInner,
+      mbGradeOuter: mbOuter,
+      mbGrade: mbGrade || mbInner || mbOuter || '',
+      rmPercent,
+      fillerMbPercent: fmbPercent,
+      mbPercent,
       totalRmConsumption,
       mixingReturn,
       totalRejection,
-      unit: rowUnit,
+      unit: detectedUnit,
+      section,
     });
   }
 
@@ -146,9 +193,9 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
 }
 
 /**
- * Parses Tally ERP Godown Summary Outward CSV/TXT
+ * Parses Tally ERP Reconciliation CSV or Godown Summary CSV/TXT
  */
-export function parseTallyOutwardsCsv(csvText: string, dateStr: string = '2026-09-24'): TallyOutwardItem[] {
+export function parseTallyOutwardsCsv(csvText: string, dateStr: string = '2026-10-01'): TallyOutwardItem[] {
   const results = Papa.parse<any[]>(csvText, {
     skipEmptyLines: 'greedy',
   });
@@ -156,7 +203,67 @@ export function parseTallyOutwardsCsv(csvText: string, dateStr: string = '2026-0
   const rows = results.data;
   if (!rows || rows.length === 0) return [];
 
-  // Detect Unit from top header if present (e.g., "RM Unit-1" or "RM Unit-2")
+  // Check if this is the structured Reconciliation Report file
+  // (Unit, Material Name, Tally Outward (Kg), App Consumed (Kg), Difference (App - Tally), Status...)
+  let isReconciliationFormat = false;
+  let headerIndex = -1;
+
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const rowStr = rows[i].map(c => cleanString(c).toLowerCase()).join(' ');
+    if (rowStr.includes('material name') && (rowStr.includes('tally outward') || rowStr.includes('outward'))) {
+      isReconciliationFormat = true;
+      headerIndex = i;
+      break;
+    }
+  }
+
+  if (isReconciliationFormat) {
+    const header = rows[headerIndex].map(c => cleanString(c).toLowerCase());
+    const getCol = (names: string[]): number => header.findIndex(h => names.some(n => h.includes(n.toLowerCase())));
+
+    const unitCol = getCol(['unit']);
+    const matCol = getCol(['material name', 'material']);
+    const outwardCol = getCol(['tally outward (kg)', 'tally outward', 'outward (kg)', 'outward']);
+    const appCol = getCol(['app consumed (kg)', 'app consumed', 'consumed (kg)', 'consumed']);
+    const statusCol = getCol(['status']);
+
+    const items: TallyOutwardItem[] = [];
+
+    for (let i = headerIndex + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length === 0) continue;
+
+      const matName = matCol !== -1 ? cleanString(row[matCol]) : '';
+      if (!matName || matName.toLowerCase().includes('grand total') || matName.toLowerCase() === 'total') {
+        continue;
+      }
+
+      let unit: 'Unit-1' | 'Unit-2' = 'Unit-1';
+      if (unitCol !== -1) {
+        const u = cleanString(row[unitCol]);
+        if (/Unit-2/i.test(u) || /Unit 2/i.test(u)) unit = 'Unit-2';
+      }
+
+      const tallyQty = outwardCol !== -1 ? cleanNumber(row[outwardCol]) : 0;
+      const appQty = appCol !== -1 ? cleanNumber(row[appCol]) : 0;
+      const status = statusCol !== -1 ? (cleanString(row[statusCol]) as any) : undefined;
+
+      items.push({
+        id: `tally-rec-${unit}-${Date.now()}-${i}`,
+        unit,
+        particulars: matName,
+        materialName: matName,
+        quantityKg: tallyQty,
+        appConsumedKg: appQty,
+        date: dateStr,
+        status,
+      });
+    }
+
+    return items;
+  }
+
+  // Fallback: Standard Tally Godown Summary Outward Format
   let detectedUnit: 'Unit-1' | 'Unit-2' = 'Unit-1';
   let dateDetected = dateStr;
 
@@ -167,44 +274,33 @@ export function parseTallyOutwardsCsv(csvText: string, dateStr: string = '2026-0
     } else if (/Unit-1/i.test(rowStr) || /Unit 1/i.test(rowStr)) {
       detectedUnit = 'Unit-1';
     }
-    const dateMatch = rowStr.match(/(\d{1,2}-[a-zA-Z]{3}-\d{2,4})/);
+    const dateMatch = rowStr.match(/(\d{1,2}[-.\/][a-zA-Z0-9]{3,}[-.\/]\d{2,4})/);
     if (dateMatch) {
       dateDetected = dateMatch[1];
     }
   }
 
-  // Find header row with "Particulars"
-  let particularsCol = -1;
-  let qtyCol = -1;
-  let headerIndex = -1;
+  let particularsCol = 0;
+  let qtyCol = 1;
+  let summaryHeaderIdx = 0;
 
   for (let i = 0; i < Math.min(15, rows.length); i++) {
     const row = rows[i];
     for (let c = 0; c < row.length; c++) {
       const val = cleanString(row[c]).toLowerCase();
       if (val.includes('particulars')) {
-        headerIndex = i;
+        summaryHeaderIdx = i;
         particularsCol = c;
       }
       if (val.includes('quantity') || val.includes('outward') || val.includes('kg')) {
         qtyCol = c;
       }
     }
-    if (particularsCol !== -1) break;
-  }
-
-  // If no particulars header found, assume col 0 is material and col 1 or 2 is quantity
-  if (particularsCol === -1) {
-    particularsCol = 0;
-    qtyCol = 1;
-    headerIndex = 0;
-  } else if (qtyCol === -1) {
-    qtyCol = particularsCol + 1;
   }
 
   const items: TallyOutwardItem[] = [];
 
-  for (let i = headerIndex + 1; i < rows.length; i++) {
+  for (let i = summaryHeaderIdx + 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.length === 0) continue;
 
@@ -221,7 +317,6 @@ export function parseTallyOutwardsCsv(csvText: string, dateStr: string = '2026-0
       continue;
     }
 
-    // Check quantity across potential quantity columns
     let qty = 0;
     if (qtyCol !== -1 && row[qtyCol] !== undefined) {
       qty = cleanNumber(row[qtyCol]);
@@ -244,7 +339,7 @@ export function parseTallyOutwardsCsv(csvText: string, dateStr: string = '2026-0
 }
 
 /**
- * Parses SKU Wise Regrind Balance CSV
+ * Parses SKU Wise Regrind Stock Report CSV
  */
 export function parseRegrindBalanceCsv(csvText: string): RegrindBalanceItem[] {
   const results = Papa.parse<any[]>(csvText, {
@@ -254,7 +349,6 @@ export function parseRegrindBalanceCsv(csvText: string): RegrindBalanceItem[] {
   const rows = results.data;
   if (!rows || rows.length < 2) return [];
 
-  // Find header row with "SKU Name"
   let headerIndex = 0;
   for (let i = 0; i < Math.min(10, rows.length); i++) {
     const rowStr = rows[i].map(c => cleanString(c).toLowerCase()).join(' ');
@@ -267,7 +361,7 @@ export function parseRegrindBalanceCsv(csvText: string): RegrindBalanceItem[] {
   const header = rows[headerIndex].map(c => cleanString(c).toLowerCase());
   const getCol = (names: string[]): number => header.findIndex(h => names.some(n => h.includes(n.toLowerCase())));
 
-  const skuCol = getCol(['sku name', 'sku', 'product']);
+  const skuCol = getCol(['sku name', 'sku', 'product', 'item name']);
   const colorCol = getCol(['color', 'colour']);
   const srcCol = getCol(['recycle source', 'source']);
   const openCol = getCol(['opening balance', 'opening']);

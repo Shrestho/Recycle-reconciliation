@@ -12,8 +12,9 @@ import {
   CloudCheck,
   CloudOff,
   RefreshCw,
+  Share2,
 } from 'lucide-react';
-import { UnitType, GoogleSheetConfig } from '../types';
+import { UnitType, GoogleSheetConfig, ProductionSection } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface NavbarProps {
@@ -21,6 +22,8 @@ interface NavbarProps {
   onTabChange: (tab: 'dashboard' | 'reconciliation' | 'regrind') => void;
   selectedUnit: UnitType;
   onUnitChange: (unit: UnitType) => void;
+  selectedSection: ProductionSection;
+  onSectionChange: (section: ProductionSection) => void;
   selectedDate: string;
   onDateChange: (date: string) => void;
   onOpenImport: () => void;
@@ -28,6 +31,7 @@ interface NavbarProps {
   onOpenHistory: () => void;
   onOpenSheetSettings: () => void;
   onOpenPrint: () => void;
+  onOpenAccessLink: () => void;
   googleSheetConfig: GoogleSheetConfig;
   isSyncing: boolean;
   hasUnsavedChanges: boolean;
@@ -38,6 +42,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTabChange,
   selectedUnit,
   onUnitChange,
+  selectedSection,
+  onSectionChange,
   selectedDate,
   onDateChange,
   onOpenImport,
@@ -45,6 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenHistory,
   onOpenSheetSettings,
   onOpenPrint,
+  onOpenAccessLink,
   googleSheetConfig,
   isSyncing,
   hasUnsavedChanges,
@@ -89,6 +96,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }`}
                 >
                   {unit === 'All' ? 'Consolidated' : unit}
+                </button>
+              ))}
+            </div>
+
+            {/* Production Section Selector (Blow vs Injection) */}
+            <div className="flex items-center bg-slate-950/80 rounded-xl p-1 border border-slate-800">
+              {(['All', 'Blow', 'Injection'] as ProductionSection[]).map(sec => (
+                <button
+                  key={sec}
+                  onClick={() => onSectionChange(sec)}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold transition ${
+                    selectedSection === sec
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title={`Filter by ${sec} Section`}
+                >
+                  {sec === 'All' ? 'All Sec' : sec}
                 </button>
               ))}
             </div>
@@ -169,6 +194,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               title="Printable Executive Report"
             >
               <Printer className="w-4 h-4" />
+            </button>
+
+            {/* PWA Web Access Link Button */}
+            <button
+              onClick={onOpenAccessLink}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-950/70 hover:bg-cyan-900/60 border border-cyan-800/60 text-cyan-300 text-xs font-semibold transition"
+              title="Share / PWA Web Access Link & QR Code"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">Access Link</span>
             </button>
 
             {/* PWA Install Component */}

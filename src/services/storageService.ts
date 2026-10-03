@@ -11,19 +11,18 @@ import {
   INITIAL_PRODUCTION_DATA,
   INITIAL_TALLY_OUTWARDS,
   INITIAL_REGRIND_BALANCE,
-  INITIAL_RECONCILIATION_ROWS,
 } from '../data/initialData';
-import { computeSkuRegrindVsRejection } from '../utils/reconciliation';
+import { computeSkuRegrindVsRejection, computeReconciliationRows } from '../utils/reconciliation';
 
 const STORAGE_KEYS = {
-  DAILY_REPORTS: 'astech_daily_reports_v1',
-  CURRENT_DATE: 'astech_current_date_v1',
-  CURRENT_UNIT: 'astech_current_unit_v1',
-  GOOGLE_SHEET_CONFIG: 'astech_google_sheet_config_v1',
+  DAILY_REPORTS: 'astech_daily_reports_v2',
+  CURRENT_DATE: 'astech_current_date_v2',
+  CURRENT_UNIT: 'astech_current_unit_v2',
+  GOOGLE_SHEET_CONFIG: 'astech_google_sheet_config_v2',
   STOCKS_OVERRIDE_PREFIX: 'astech_stocks_override_',
-  PRODUCTION_DATA: 'astech_production_data_v1',
-  TALLY_OUTWARDS: 'astech_tally_outwards_v1',
-  REGRIND_BALANCE: 'astech_regrind_balance_v1',
+  PRODUCTION_DATA: 'astech_production_data_v2',
+  TALLY_OUTWARDS: 'astech_tally_outwards_v2',
+  REGRIND_BALANCE: 'astech_regrind_balance_v2',
 };
 
 export const StorageService = {
@@ -55,31 +54,45 @@ export const StorageService = {
       console.error(e);
     }
 
-    // Default seeded initial report for 2026-09-24
+    // Default seeded initial report for 2026-10-01
     const initialSkuComp = computeSkuRegrindVsRejection(INITIAL_REGRIND_BALANCE, INITIAL_PRODUCTION_DATA);
+    const initialRecRows = computeReconciliationRows(INITIAL_TALLY_OUTWARDS, INITIAL_PRODUCTION_DATA);
+
+    const totalTally = initialRecRows.reduce((s, r) => s + r.tallyOutwardKg, 0);
+    const totalApp = initialRecRows.reduce((s, r) => s + r.appConsumedKg, 0);
+    const totalProd = initialRecRows.reduce((s, r) => s + r.productionRmConsumptionKg, 0);
+    const totalReturn = initialRecRows.reduce((s, r) => s + r.mixingReturnKg, 0);
+    const totalOpen = initialRecRows.reduce((s, r) => s + r.openingStockKg, 0);
+    const totalClose = initialRecRows.reduce((s, r) => s + r.closingStockKg, 0);
+    const totalVar = initialRecRows.reduce((s, r) => s + r.varianceKg, 0);
+
+    const totalRej = initialSkuComp.reduce((s, r) => s + r.productionRejectionKg, 0);
+    const totalProduced = initialSkuComp.reduce((s, r) => s + r.regrindProducedKg, 0);
+    const recoveryRate = totalRej > 0 ? (totalProduced / totalRej) * 100 : 0;
+
     const initialSnapshot: DailyReportSnapshot = {
-      id: 'snapshot-2026-09-24-All',
-      date: '2026-09-24',
+      id: 'snapshot-2026-10-01-All',
+      date: '2026-10-01',
       unit: 'All',
-      title: 'Daily Reconciliation & Regrind Report - 24 Sep 2026',
-      savedAt: '2026-09-24T18:00:00.000Z',
-      reconciliationRows: INITIAL_RECONCILIATION_ROWS,
+      title: 'Daily Reconciliation & Regrind Report - 01 Oct 2026',
+      savedAt: '2026-10-01T18:00:00.000Z',
+      reconciliationRows: initialRecRows,
       skuRegrindRows: initialSkuComp,
       kpis: {
-        totalTallyOutwardKg: 5655.4,
-        totalAppConsumedKg: 5413.4,
-        totalProductionRmKg: 5350.0,
-        totalMixingReturnKg: 242.0,
-        totalOpeningStockKg: 532.0,
-        totalClosingStockKg: 785.69,
-        totalVarianceKg: -242.0,
-        matchCount: 6,
-        mismatchCount: 10,
-        totalRejectionKg: 894.46,
-        totalRegrindProducedKg: 3725.0,
-        recoveryRatePercent: 416.4,
+        totalTallyOutwardKg: totalTally,
+        totalAppConsumedKg: totalApp,
+        totalProductionRmKg: totalProd,
+        totalMixingReturnKg: totalReturn,
+        totalOpeningStockKg: totalOpen,
+        totalClosingStockKg: totalClose,
+        totalVarianceKg: totalVar,
+        matchCount: initialRecRows.filter(r => r.status === 'Match').length,
+        mismatchCount: initialRecRows.filter(r => r.status === 'Mismatch').length,
+        totalRejectionKg: totalRej,
+        totalRegrindProducedKg: totalProduced,
+        recoveryRatePercent: Number(recoveryRate.toFixed(1)),
       },
-      notes: 'Initial production and store outwards reconciliation for Unit-1 & Unit-2.',
+      notes: 'Production Blow & Injection report and store outwards reconciliation for Unit-1 & Unit-2.',
       syncedToGoogleSheet: false,
     };
 

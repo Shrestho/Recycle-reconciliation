@@ -11,8 +11,9 @@ import {
   AlertTriangle,
   Factory,
   Layers,
+  Sparkles,
 } from 'lucide-react';
-import { SkuRegrindVsRejectionItem, UnitType } from '../types';
+import { SkuRegrindVsRejectionItem, UnitType, ProductionSection } from '../types';
 import { exportSkuRegrindToCsv, copyTableToClipboardForGoogleSheets } from '../utils/exportUtils';
 
 interface RegrindReportViewProps {
@@ -29,6 +30,7 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [sourceFilter, setSourceFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [sectionFilter, setSectionFilter] = useState<ProductionSection>('All');
   const [copied, setCopied] = useState(false);
   const [sortField, setSortField] = useState<'skuName' | 'regrindProducedKg' | 'productionRejectionKg' | 'crushedDeltaKg' | 'recoveryRatePercent'>('regrindProducedKg');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -38,13 +40,17 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
 
   // Filter items
   const filtered = items.filter(item => {
-    // Unit filter (check if item has balance in selected unit)
+    // Unit filter
     if (selectedUnit === 'Unit-1' && item.balanceU1Kg === 0 && item.regrindProducedKg === 0) {
-      // Keep if actively produced or has balance
       if (item.balanceU2Kg > 0 && item.balanceU1Kg === 0) return false;
     }
     if (selectedUnit === 'Unit-2' && item.balanceU2Kg === 0 && item.regrindProducedKg === 0) {
       if (item.balanceU1Kg > 0 && item.balanceU2Kg === 0) return false;
+    }
+
+    // Section filter: Blow vs Injection
+    if (sectionFilter !== 'All' && item.section && item.section !== sectionFilter) {
+      return false;
     }
 
     if (sourceFilter !== 'All' && item.recycleSource !== sourceFilter) return false;
@@ -61,8 +67,10 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
       const q = searchTerm.toLowerCase();
       return (
         item.skuName.toLowerCase().includes(q) ||
+        (item.matchedItemName && item.matchedItemName.toLowerCase().includes(q)) ||
         item.color.toLowerCase().includes(q) ||
-        item.recycleSource.toLowerCase().includes(q)
+        item.recycleSource.toLowerCase().includes(q) ||
+        (item.rmGrade && item.rmGrade.toLowerCase().includes(q))
       );
     }
     return true;
@@ -113,9 +121,12 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
   const handleCopyForSheets = async () => {
     const headers = [
       'SKU Name',
+      'Matched Production Item',
+      'Section',
+      'RM Grade',
       'Color',
       'Recycle Source',
-      'Regrind Produced (Crushed Kg)',
+      'Regrind Produced (Period Produced Kg)',
       'Production Rejection (Kg)',
       'Crushed Delta (Kg)',
       'Recovery Rate %',
@@ -127,6 +138,9 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
     ];
     const data = sorted.map(i => [
       i.skuName,
+      i.matchedItemName || '',
+      i.section || '',
+      i.rmGrade || '',
       i.color,
       i.recycleSource,
       i.regrindProducedKg,
@@ -161,7 +175,7 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            Tracks rejections received from production lines against regrind crushed, reuse in mixing batches, and warehouse balance across Unit-1 & Unit-2.
+            Comparing <strong>"Period Produced (Kg)"</strong> (from Regrind Stock Report) with <strong>"Rejection (kg) / Total Rejection (kg)"</strong> (from Production Blow & Injection Report).
           </p>
         </div>
 
@@ -189,15 +203,15 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
       {/* KPI Highlight Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
-          <span className="text-[11px] text-slate-400 font-medium">Production Rejection</span>
+          <span className="text-[11px] text-slate-400 font-medium">Production Rejection (kg)</span>
           <div className="text-lg font-bold text-amber-300 mt-0.5">
             {totals.rejection.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-xs text-slate-400">Kg</span>
           </div>
-          <div className="text-[10px] text-slate-500">From daily production run</div>
+          <div className="text-[10px] text-slate-500">From Blow & Injection reports</div>
         </div>
 
         <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
-          <span className="text-[11px] text-slate-400 font-medium">Regrind Produced</span>
+          <span className="text-[11px] text-slate-400 font-medium">Regrind Produced (kg)</span>
           <div className="text-lg font-bold text-emerald-300 mt-0.5">
             {totals.produced.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-xs text-slate-400">Kg</span>
           </div>
@@ -207,11 +221,11 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
         </div>
 
         <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
-          <span className="text-[11px] text-slate-400 font-medium">Consumed in Mixing</span>
+          <span className="text-[11px] text-slate-400 font-medium">Consumed in Mixing (kg)</span>
           <div className="text-lg font-bold text-cyan-300 mt-0.5">
             {totals.consumed.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-xs text-slate-400">Kg</span>
           </div>
-          <div className="text-[10px] text-slate-500">Reused for new production</div>
+          <div className="text-[10px] text-slate-500">Reused for new production batches</div>
         </div>
 
         <div className="bg-slate-900/80 border border-slate-800 p-3 rounded-xl">
@@ -228,16 +242,31 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
       {/* Filter and Search Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80">
         <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
-          {/* Search SKU / Color */}
+          {/* Search SKU / Color / Product */}
           <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search SKU name, color..."
+              placeholder="Search SKU Name, Item Name, RM Grade..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-950/90 border border-slate-800 text-slate-200 text-xs placeholder:text-slate-500 focus:outline-hidden focus:border-cyan-500"
             />
+          </div>
+
+          {/* Section Filter: Blow vs Injection */}
+          <div className="flex items-center gap-1 bg-slate-950/80 px-2.5 py-1 rounded-xl border border-slate-800 text-xs">
+            <Factory className="w-3 h-3 text-cyan-400 mr-1" />
+            <span className="text-slate-400 text-[11px] hidden sm:inline">Section:</span>
+            <select
+              value={sectionFilter}
+              onChange={e => setSectionFilter(e.target.value as ProductionSection)}
+              className="bg-transparent text-slate-200 focus:outline-hidden text-xs cursor-pointer font-semibold"
+            >
+              <option value="All" className="bg-slate-900">All Sections</option>
+              <option value="Blow" className="bg-slate-900">Blow Molding</option>
+              <option value="Injection" className="bg-slate-900">Injection / IBM</option>
+            </select>
           </div>
 
           {/* Recycle Source Filter */}
@@ -285,32 +314,34 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
           <table className="w-full text-left text-xs text-slate-300 border-collapse">
             <thead className="bg-slate-950 sticky top-0 z-20 text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
               <tr>
-                <th className="py-3 px-3 min-w-[200px]">
+                <th className="py-3 px-3 min-w-[220px]">
                   <button
                     onClick={() => toggleSort('skuName')}
                     className="flex items-center gap-1 hover:text-white"
                   >
-                    <span>SKU Name</span>
+                    <span>SKU Name (Regrind Report)</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
                 <th className="py-3 px-2 min-w-[80px]">Color</th>
                 <th className="py-3 px-2 min-w-[85px]">Source</th>
-                <th className="py-3 px-2 text-right bg-emerald-950/40 text-emerald-300 font-semibold min-w-[110px]">
+                <th className="py-3 px-2 text-right bg-emerald-950/40 text-emerald-300 font-semibold min-w-[120px]">
                   <button
                     onClick={() => toggleSort('regrindProducedKg')}
                     className="flex items-center justify-end gap-1 hover:text-white w-full text-right"
+                    title="Column: Period Produced (Kg) from Regrind Stock Report"
                   >
-                    <span>Regrind Produced</span>
+                    <span>Regrind Produced (Kg)</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
-                <th className="py-3 px-2 text-right bg-amber-950/40 text-amber-300 font-semibold min-w-[110px]">
+                <th className="py-3 px-2 text-right bg-amber-950/40 text-amber-300 font-semibold min-w-[120px]">
                   <button
                     onClick={() => toggleSort('productionRejectionKg')}
                     className="flex items-center justify-end gap-1 hover:text-white w-full text-right"
+                    title="Column: Rejection (kg) / Total Rejection (kg) from Production Report"
                   >
-                    <span>Prod. Rejection</span>
+                    <span>Prod. Rejection (Kg)</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
@@ -349,13 +380,35 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
               ) : (
                 sorted.map(row => {
                   const isHighRecovery = row.recoveryRatePercent >= 100;
-                  const hasBacklog = row.productionRejectionKg > row.regrindProducedKg;
+                  const isDifferentName = row.matchedItemName && row.matchedItemName.toLowerCase() !== row.skuName.toLowerCase();
 
                   return (
                     <tr key={row.id} className="hover:bg-slate-800/40 transition">
-                      {/* SKU Name */}
+                      {/* SKU Name & Fuzzy Matched Item Name */}
                       <td className="py-2.5 px-3">
                         <div className="font-semibold text-slate-200">{row.skuName}</div>
+                        {isDifferentName && (
+                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-cyan-400">
+                            <Sparkles className="w-2.5 h-2.5" />
+                            <span>Matched Prod: {row.matchedItemName}</span>
+                          </div>
+                        )}
+                        {row.rmGrade && (
+                          <div className="text-[10px] text-slate-500 truncate max-w-[240px]">
+                            RM: {row.rmGrade}
+                          </div>
+                        )}
+                        {row.section && (
+                          <span
+                            className={`inline-block mt-0.5 px-1.5 py-0.2 rounded-xs text-[9px] font-bold ${
+                              row.section === 'Injection'
+                                ? 'bg-purple-950 text-purple-300 border border-purple-800/50'
+                                : 'bg-cyan-950 text-cyan-300 border border-cyan-800/50'
+                            }`}
+                          >
+                            {row.section} Section
+                          </span>
+                        )}
                       </td>
 
                       {/* Color */}
@@ -372,12 +425,12 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
                         </span>
                       </td>
 
-                      {/* Regrind Produced (Crushed) */}
+                      {/* Regrind Produced (Crushed) from Period Produced (Kg) */}
                       <td className="py-2.5 px-2 text-right font-mono font-bold text-emerald-300 bg-emerald-950/15">
                         {row.regrindProducedKg.toFixed(2)}
                       </td>
 
-                      {/* Production Rejection */}
+                      {/* Production Rejection from Rejection (kg) */}
                       <td className="py-2.5 px-2 text-right font-mono font-bold text-amber-300 bg-amber-950/15">
                         {row.productionRejectionKg.toFixed(2)}
                       </td>

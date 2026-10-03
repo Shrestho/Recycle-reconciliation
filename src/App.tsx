@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   UnitType,
+  ProductionSection,
   ProductionItem,
   TallyOutwardItem,
   RegrindBalanceItem,
@@ -20,6 +21,7 @@ import { ImportModal } from './components/ImportModal';
 import { GoogleSheetSettingsModal } from './components/GoogleSheetSettingsModal';
 import { HistoryModal } from './components/HistoryModal';
 import { PrintReportModal } from './components/PrintReportModal';
+import { AccessLinkModal } from './components/AccessLinkModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { CheckCircle2, AlertTriangle, X } from 'lucide-react';
 
@@ -27,7 +29,8 @@ export default function App() {
   // Navigation & Date
   const [currentTab, setCurrentTab] = useState<'dashboard' | 'reconciliation' | 'regrind'>('dashboard');
   const [selectedUnit, setSelectedUnit] = useState<UnitType>('All');
-  const [selectedDate, setSelectedDate] = useState<string>('2026-09-24');
+  const [selectedSection, setSelectedSection] = useState<ProductionSection>('All');
+  const [selectedDate, setSelectedDate] = useState<string>('2026-10-01');
 
   // Core Datasets
   const [productionData, setProductionData] = useState<ProductionItem[]>(() => StorageService.getProductionData());
@@ -56,6 +59,7 @@ export default function App() {
   const [isSheetSettingsOpen, setIsSheetSettingsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
+  const [isAccessLinkOpen, setIsAccessLinkOpen] = useState(false);
 
   // Toast Notification
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -95,8 +99,8 @@ export default function App() {
 
   // Compute live SKU Wise Regrind vs Rejection rows
   const skuRegrindRows: SkuRegrindVsRejectionItem[] = useMemo(() => {
-    return computeSkuRegrindVsRejection(regrindBalance, productionData);
-  }, [regrindBalance, productionData]);
+    return computeSkuRegrindVsRejection(regrindBalance, productionData, selectedSection);
+  }, [regrindBalance, productionData, selectedSection]);
 
   // Build current snapshot object
   const currentSnapshot: DailyReportSnapshot = useMemo(() => {
@@ -179,10 +183,11 @@ export default function App() {
     setProductionData(StorageService.getProductionData());
     setTallyOutwards(StorageService.getTallyOutwards());
     setRegrindBalance(StorageService.getRegrindBalance());
-    setSelectedDate('2026-09-24');
+    setSelectedDate('2026-10-01');
     setSelectedUnit('All');
-    setCustomStocks(StorageService.getCustomStocks('2026-09-24'));
-    showToast('Loaded 24-Sep-2026 official operational datasets!', 'success');
+    setSelectedSection('All');
+    setCustomStocks(StorageService.getCustomStocks('2026-10-01'));
+    showToast('Loaded 01-Oct-2026 official operational datasets!', 'success');
   };
 
   // Restore snapshot from history
@@ -206,6 +211,8 @@ export default function App() {
         onTabChange={setCurrentTab}
         selectedUnit={selectedUnit}
         onUnitChange={setSelectedUnit}
+        selectedSection={selectedSection}
+        onSectionChange={setSelectedSection}
         selectedDate={selectedDate}
         onDateChange={setSelectedDate}
         onOpenImport={() => setIsImportOpen(true)}
@@ -213,6 +220,7 @@ export default function App() {
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenSheetSettings={() => setIsSheetSettingsOpen(true)}
         onOpenPrint={() => setIsPrintOpen(true)}
+        onOpenAccessLink={() => setIsAccessLinkOpen(true)}
         googleSheetConfig={googleSheetConfig}
         isSyncing={isSyncing}
         hasUnsavedChanges={hasUnsavedChanges}
@@ -225,6 +233,7 @@ export default function App() {
             reconciliationRows={reconciliationRows}
             skuRegrindRows={skuRegrindRows}
             selectedUnit={selectedUnit}
+            selectedSection={selectedSection}
             selectedDate={selectedDate}
             onNavigateToTab={setCurrentTab}
             onOpenImport={() => setIsImportOpen(true)}
@@ -255,6 +264,13 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2">
           <span>ASTECH LIMITED &copy; 2026 — Multi-Unit ERP & Recycle Management System</span>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsAccessLinkOpen(true)}
+              className="text-cyan-400 hover:text-cyan-300 font-semibold underline"
+            >
+              Share Access Link
+            </button>
+            <span>•</span>
             <span>Offline-Ready PWA</span>
             <span>•</span>
             <button
@@ -268,7 +284,7 @@ export default function App() {
               onClick={handleLoadSampleData}
               className="hover:text-slate-300 underline"
             >
-              Reset 24-Sep Data
+              Reset 01-Oct Data
             </button>
           </div>
         </div>
@@ -328,6 +344,11 @@ export default function App() {
         skuRegrindRows={skuRegrindRows}
         selectedUnit={selectedUnit}
         selectedDate={selectedDate}
+      />
+
+      <AccessLinkModal
+        isOpen={isAccessLinkOpen}
+        onClose={() => setIsAccessLinkOpen(false)}
       />
 
       {/* PWA Offline Banner */}

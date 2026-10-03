@@ -260,27 +260,27 @@ export const ReconciliationReportView: React.FC<ReconciliationReportViewProps> =
                     onClick={() => toggleSort('materialName')}
                     className="flex items-center gap-1 hover:text-white"
                   >
-                    <span>Material Name</span>
+                    <span>Material Name (RM / MB / FMB)</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
                 <th className="py-3 px-2 text-right bg-blue-950/40 text-blue-300 font-semibold min-w-[105px]">
                   Opening Stock (Kg)
                 </th>
-                <th className="py-3 px-2 text-right min-w-[105px]">
+                <th className="py-3 px-2 text-right min-w-[110px]">
                   <button
                     onClick={() => toggleSort('tallyOutwardKg')}
                     className="flex items-center justify-end gap-1 hover:text-white w-full text-right"
                   >
-                    <span>Tally Outward</span>
+                    <span>Tally Outward (Kg)</span>
                     <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
                 <th className="py-3 px-2 text-right text-slate-400 min-w-[95px]">
                   Total Avail
                 </th>
-                <th className="py-3 px-2 text-right min-w-[100px]">
-                  Apps Mixing
+                <th className="py-3 px-2 text-right min-w-[110px]">
+                  <span>App Consumed (Kg)</span>
                 </th>
                 <th className="py-3 px-2 text-right min-w-[100px]">
                   <button
@@ -306,8 +306,8 @@ export const ReconciliationReportView: React.FC<ReconciliationReportViewProps> =
                     <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
-                <th className="py-3 px-2 text-right text-slate-400 min-w-[85px]">
-                  App - Tally
+                <th className="py-3 px-2 text-right text-slate-400 min-w-[105px]">
+                  Diff (App - Tally)
                 </th>
                 <th className="py-3 px-3 text-center min-w-[110px]">Status</th>
                 <th className="py-3 px-3 min-w-[160px]">Remarks / Reason</th>

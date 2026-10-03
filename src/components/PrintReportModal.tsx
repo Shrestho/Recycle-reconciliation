@@ -31,7 +31,9 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
 
   const totalTally = filteredRec.reduce((s, r) => s + r.tallyOutwardKg, 0);
   const totalOpening = filteredRec.reduce((s, r) => s + r.openingStockKg, 0);
+  const totalApp = filteredRec.reduce((s, r) => s + r.appConsumedKg, 0);
   const totalProd = filteredRec.reduce((s, r) => s + r.productionRmConsumptionKg, 0);
+  const totalReturn = filteredRec.reduce((s, r) => s + r.mixingReturnKg, 0);
   const totalClosing = filteredRec.reduce((s, r) => s + r.closingStockKg, 0);
   const totalVariance = filteredRec.reduce((s, r) => s + r.varianceKg, 0);
 
@@ -167,9 +169,9 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
                   <td className="border border-slate-300 p-1 text-right font-mono">{totalOpening.toFixed(2)}</td>
                   <td className="border border-slate-300 p-1 text-right font-mono">{totalTally.toFixed(2)}</td>
                   <td className="border border-slate-300 p-1 text-right font-mono">{(totalOpening + totalTally).toFixed(2)}</td>
+                  <td className="border border-slate-300 p-1 text-right font-mono">{totalApp.toFixed(2)}</td>
                   <td className="border border-slate-300 p-1 text-right font-mono">{totalProd.toFixed(2)}</td>
-                  <td className="border border-slate-300 p-1 text-right font-mono">{totalProd.toFixed(2)}</td>
-                  <td className="border border-slate-300 p-1 text-right font-mono">242.00</td>
+                  <td className="border border-slate-300 p-1 text-right font-mono">{totalReturn.toFixed(2)}</td>
                   <td className="border border-slate-300 p-1 text-right font-mono">{totalClosing.toFixed(2)}</td>
                   <td className="border border-slate-300 p-1 text-right font-mono">{totalVariance.toFixed(2)}</td>
                   <td colSpan={2} className="border border-slate-300 p-1"></td>

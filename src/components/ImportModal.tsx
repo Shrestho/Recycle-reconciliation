@@ -175,16 +175,16 @@ export const ImportModal: React.FC<ImportModalProps> = ({
             <div className="flex items-center gap-2.5">
               <Sparkles className="w-4 h-4 text-cyan-400 flex-shrink-0" />
               <div className="text-xs">
-                <span className="font-semibold text-white">Load Official 24-Sep-2026 Shift Data</span>
+                <span className="font-semibold text-white">Load Official 01-Oct-2026 Shift Data</span>
                 <p className="text-slate-400 text-[11px]">
-                  Instantly populates Unit-1 & Unit-2 Tally outwards, mixing, and SKU regrind balance.
+                  Instantly populates Unit-1 & Unit-2 Blow/Injection production, Tally outwards/mixing, and SKU regrind stock.
                 </p>
               </div>
             </div>
             <button
               onClick={() => {
                 onLoadSampleData();
-                setSuccessMsg('24-Sep-2026 datasets loaded successfully!');
+                setSuccessMsg('01-Oct-2026 datasets loaded successfully!');
                 setTimeout(onClose, 900);
               }}
               className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold whitespace-nowrap transition"
@@ -212,9 +212,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
                 }`}
               >
-                <div className="font-semibold text-xs text-white">1. Production & RM Consumption</div>
+                <div className="font-semibold text-xs text-white">1. Daily Production Report</div>
                 <div className="text-[10px] mt-0.5 text-slate-400">
-                  Excel / Apps file (RM, MB %, Total Consumption, Rejection)
+                  Item Name, RM Grade, MB Grade Inner/Outer, R/M %, FMB %, MB %, Rejection (kg)
                 </div>
               </button>
 
@@ -231,9 +231,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
                 }`}
               >
-                <div className="font-semibold text-xs text-white">2. Tally ERP Godown Outwards</div>
+                <div className="font-semibold text-xs text-white">2. Tally Reconciliation / Outwards</div>
                 <div className="text-[10px] mt-0.5 text-slate-400">
-                  Godown summary from Tally Prime (Unit-1 or Unit-2)
+                  Material Name, Tally Outward (Kg), App Consumed (Kg) or Godown Summary
                 </div>
               </button>
 
@@ -250,9 +250,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                     : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
                 }`}
               >
-                <div className="font-semibold text-xs text-white">3. Regrind SKU Balance</div>
+                <div className="font-semibold text-xs text-white">3. SKU Wise Regrind Stock Report</div>
                 <div className="text-[10px] mt-0.5 text-slate-400">
-                  Crushing section produced vs consumed & warehouse balance
+                  SKU Name, Period Produced (Kg), Period Consumed (Kg), Balances
                 </div>
               </button>
             </div>
