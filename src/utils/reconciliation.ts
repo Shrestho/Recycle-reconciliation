@@ -6,8 +6,10 @@ import {
   ReconciliationRow,
   ReconciliationStatus,
   ProductionSection,
+  SkuNameMapping,
 } from '../types';
 import { categorizeMaterial } from './csvParser';
+import { DEFAULT_SKU_MAPPINGS } from '../data/defaultSkuMappings';
 
 /**
  * Normalizes strings for matching (strips non-alphanumeric, lowercases)
@@ -62,12 +64,14 @@ function normalizeColor(color: string): string {
 
 /**
  * Computes fuzzy / alias similarity between a Production Item Name and a Regrind SKU Name
+ * Uses exact matching, user/system SKU Name Mappings dictionary, nickname aliases, and token overlap
  */
 export function isAlmostCloseMatch(
   prodName: string,
   prodColor: string,
   skuName: string,
-  skuColor: string
+  skuColor: string,
+  skuMappings: SkuNameMapping[] = DEFAULT_SKU_MAPPINGS
 ): { isMatch: boolean; confidence: number; matchType: 'exact' | 'close' | 'alias' } {
   const normProd = normalizeKey(prodName);
   const normSku = normalizeKey(skuName);
@@ -77,12 +81,45 @@ export function isAlmostCloseMatch(
     return { isMatch: true, confidence: 100, matchType: 'exact' };
   }
 
-  // 2. Substring match
+  // 2. Check SKU Name Mappings Dictionary (Similar name data)
+  if (skuMappings && skuMappings.length > 0) {
+    for (const map of skuMappings) {
+      const normMapRegrind = normalizeKey(map.regrindSkuName);
+      const normMapProd = normalizeKey(map.productionSkuName);
+
+      // Check if regrind name matches mapping regrind key
+      const isRegrindMatch =
+        normSku === normMapRegrind ||
+        normSku.includes(normMapRegrind) ||
+        normMapRegrind.includes(normSku);
+
+      // Check if production name matches mapping production key
+      const isProdMatch =
+        normProd === normMapProd ||
+        normProd.includes(normMapProd) ||
+        normMapProd.includes(normProd);
+
+      if (isRegrindMatch && isProdMatch) {
+        // Optional color check if specified in mapping
+        if (map.color) {
+          const mapColor = normalizeColor(map.color);
+          const pColor = normalizeColor(prodColor);
+          const sColor = normalizeColor(skuColor);
+          if (pColor && mapColor !== pColor && sColor && mapColor !== sColor) {
+            continue;
+          }
+        }
+        return { isMatch: true, confidence: 100, matchType: 'alias' };
+      }
+    }
+  }
+
+  // 3. Substring match
   if (normProd.includes(normSku) || normSku.includes(normProd)) {
     return { isMatch: true, confidence: 95, matchType: 'exact' };
   }
 
-  // 3. Known Factory Nicknames & Aliases
+  // 4. Known Factory Nicknames & Aliases
   const aliasPairs: [string, string][] = [
     ['pdnt100', 'btlpdnt100'],
     ['pdnt50', 'btlpdnt50'],
@@ -111,7 +148,7 @@ export function isAlmostCloseMatch(
     }
   }
 
-  // 4. Token-level overlap (e.g. "PDNT" and "100", or "Harpic" and "500")
+  // 5. Token-level overlap (e.g. "PDNT" and "100", or "Harpic" and "500")
   const prodTokens = extractCoreTokens(prodName);
   const skuTokens = extractCoreTokens(skuName);
 
@@ -120,7 +157,25 @@ export function isAlmostCloseMatch(
     const tokenScore = (intersection.length * 2) / (prodTokens.length + skuTokens.length);
 
     // If matching at least 2 key tokens or 1 unique brand token (e.g., 'harpic', 'hexisol', 'dove', 'believe')
-    const keyBrands = ['harpic', 'hexisol', 'dove', 'believe', 'pdnt', 'ponds', 'sunsilk', 'elimate', 'vim', 'dettol', 'khaleesi', 'khalessi', 'courage', 'rin', 'viscotin'];
+    const keyBrands = [
+      'harpic',
+      'hexisol',
+      'dove',
+      'believe',
+      'pdnt',
+      'ponds',
+      'sunsilk',
+      'elimate',
+      'vim',
+      'dettol',
+      'khaleesi',
+      'khalessi',
+      'courage',
+      'rin',
+      'viscotin',
+      'bread',
+      'stainer',
+    ];
     const matchedBrand = intersection.find(t => keyBrands.includes(t));
 
     if (tokenScore >= 0.5 || (matchedBrand && intersection.length >= 1)) {
@@ -143,11 +198,13 @@ export function isAlmostCloseMatch(
  * Comparing:
  * - Production: "Item Name" -> "Rejection (kg)" / "Total Rejection (kg)"
  * - Regrind Stock Report: "SKU Name" -> "Period Produced (Kg)"
+ * - Uses similar name data (SkuNameMapping[]) to match equivalent product/SKU names
  */
 export function computeSkuRegrindVsRejection(
   regrindItems: RegrindBalanceItem[],
   productionItems: ProductionItem[],
-  sectionFilter: ProductionSection = 'All'
+  sectionFilter: ProductionSection = 'All',
+  skuMappings: SkuNameMapping[] = DEFAULT_SKU_MAPPINGS
 ): SkuRegrindVsRejectionItem[] {
   // Filter production items by section if specified
   const filteredProd = productionItems.filter(p => {
@@ -158,10 +215,11 @@ export function computeSkuRegrindVsRejection(
   const matchedProdIds = new Set<string>();
   const rows: SkuRegrindVsRejectionItem[] = [];
 
-  // Match each Regrind balance item with production items
+  // Match each Regrind balance item with production items using the similar name mappings
   regrindItems.forEach(rg => {
     let matchedProdItem: ProductionItem | null = null;
     let matchedRejection = 0;
+    let matchedRejectionPcs = 0;
     let bestMatchInfo: { isMatch: boolean; confidence: number; matchType: 'exact' | 'close' | 'alias' } = {
       isMatch: false,
       confidence: 0,
@@ -169,7 +227,7 @@ export function computeSkuRegrindVsRejection(
     };
 
     filteredProd.forEach(prod => {
-      const match = isAlmostCloseMatch(prod.productName, prod.colour, rg.skuName, rg.color);
+      const match = isAlmostCloseMatch(prod.productName, prod.colour, rg.skuName, rg.color, skuMappings);
       if (match.isMatch && match.confidence > bestMatchInfo.confidence) {
         bestMatchInfo = match;
         matchedProdItem = prod;
@@ -177,11 +235,15 @@ export function computeSkuRegrindVsRejection(
     });
 
     // If matched, sum rejection for all production runs of this product
+    // Strictly takes weight (kg) from Total Rejection (kg) column, and separates piece count
     if (matchedProdItem) {
       filteredProd.forEach(prod => {
-        const m = isAlmostCloseMatch(prod.productName, prod.colour, rg.skuName, rg.color);
+        const m = isAlmostCloseMatch(prod.productName, prod.colour, rg.skuName, rg.color, skuMappings);
         if (m.isMatch) {
           matchedRejection += prod.totalRejection;
+          if (prod.totalRejectionPcs) {
+            matchedRejectionPcs += prod.totalRejectionPcs;
+          }
           matchedProdIds.add(prod.id);
         }
       });
@@ -206,6 +268,7 @@ export function computeSkuRegrindVsRejection(
       recycleSource: rg.recycleSource,
       regrindProducedKg: regrindProduced,
       productionRejectionKg: prodRejection,
+      productionRejectionPcs: matchedRejectionPcs > 0 ? matchedRejectionPcs : undefined,
       crushedDeltaKg: crushedDelta,
       recoveryRatePercent: recoveryRate,
       openingBalanceKg: rg.openingBalanceKg,
@@ -234,6 +297,7 @@ export function computeSkuRegrindVsRejection(
       recycleSource: 'Production',
       regrindProducedKg: 0,
       productionRejectionKg: Number(prod.totalRejection.toFixed(3)),
+      productionRejectionPcs: prod.totalRejectionPcs,
       crushedDeltaKg: Number((-prod.totalRejection).toFixed(3)),
       recoveryRatePercent: 0,
       openingBalanceKg: 0,

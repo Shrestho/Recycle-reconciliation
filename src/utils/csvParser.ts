@@ -4,6 +4,7 @@ import {
   TallyOutwardItem,
   RegrindBalanceItem,
   MaterialCategory,
+  SkuNameMapping,
 } from '../types';
 
 /**
@@ -12,9 +13,12 @@ import {
 export function cleanString(val: any): string {
   if (val === null || val === undefined) return '';
   return String(val)
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // remove zero-width spaces/BOM
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ') // normalize all unicode spaces
     .trim()
     .replace(/^["']|["']$/g, '')
-    .replace(/\r\n|\r|\n/g, ' ');
+    .replace(/\r\n|\r|\n/g, ' ')
+    .replace(/\s+/g, ' '); // collapse duplicate spaces
 }
 
 /**
@@ -82,13 +86,13 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
   const rows = results.data;
   if (!rows || rows.length < 2) return [];
 
-  // Find header row (looks for "Item Name" or "Product Name" or "RM Grade" or "Rejection")
+  // Find primary header row (looks for "Item Name" or "Product Name" or "RM Grade" or "Rejection" or "M/C")
   let headerIndex = -1;
   for (let i = 0; i < Math.min(15, rows.length); i++) {
     const rowStr = rows[i].map(c => cleanString(c).toLowerCase()).join(' ');
     if (
       (rowStr.includes('item name') || rowStr.includes('product name') || rowStr.includes('item')) &&
-      (rowStr.includes('rm') || rowStr.includes('grade') || rowStr.includes('rejection') || rowStr.includes('m/c'))
+      (rowStr.includes('rm') || rowStr.includes('grade') || rowStr.includes('rejection') || rowStr.includes('reject') || rowStr.includes('m/c'))
     ) {
       headerIndex = i;
       break;
@@ -96,7 +100,47 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
   }
 
   if (headerIndex === -1) headerIndex = 0;
-  const header = rows[headerIndex].map(c => cleanString(c).toLowerCase());
+
+  // Check if headerIndex + 1 is a sub-header row (e.g., specifying units like "(Pcs)", "(kg)", "kg", "pcs", "%", "gm")
+  let dataStartIndex = headerIndex + 1;
+  let isSubHeaderRow = false;
+  if (headerIndex + 1 < rows.length) {
+    const nextRowStr = rows[headerIndex + 1].map(c => cleanString(c).toLowerCase()).join(' ');
+    // If it contains unit indicators and does NOT look like data (no BM-, no IBM-, no product name like 'bottle', 'cap')
+    if (
+      (nextRowStr.includes('pcs') || nextRowStr.includes('(pcs)') || nextRowStr.includes('kg') || nextRowStr.includes('(kg)') || nextRowStr.includes('nos')) &&
+      !nextRowStr.includes('bm-') &&
+      !nextRowStr.includes('ibm-') &&
+      !nextRowStr.includes('bottle') &&
+      !nextRowStr.includes('cap')
+    ) {
+      isSubHeaderRow = true;
+      dataStartIndex = headerIndex + 2;
+    }
+  }
+
+  // Construct composite header that merges parent header and sub-header if present
+  // Also handles Excel merged cells where parent cell was merged over 2 columns
+  const primaryHeader = rows[headerIndex].map(c => cleanString(c).toLowerCase());
+  const subHeader = isSubHeaderRow ? rows[headerIndex + 1].map(c => cleanString(c).toLowerCase()) : [];
+
+  const maxCols = Math.max(primaryHeader.length, subHeader.length);
+  const header: string[] = [];
+
+  let lastNonEmptyParent = '';
+  for (let c = 0; c < maxCols; c++) {
+    let parent = primaryHeader[c] || '';
+    if (parent) {
+      lastNonEmptyParent = parent;
+    } else if (isSubHeaderRow && (subHeader[c]?.includes('kg') || subHeader[c]?.includes('pcs')) && lastNonEmptyParent) {
+      // Propagate merged parent header from previous column (e.g. Total Rejection merged across Pcs and Kg)
+      parent = lastNonEmptyParent;
+    }
+
+    const sub = subHeader[c] || '';
+    const combined = cleanString(`${parent} ${sub}`).toLowerCase();
+    header.push(combined);
+  }
 
   // Helper to find column index by synonyms
   const getCol = (names: string[]): number => {
@@ -113,14 +157,164 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
   const rmPercentCol = getCol(['r/m %', 'rm %', 'rm percent']);
   const fmbPercentCol = getCol(['fmb %', 'filler mb %', 'filler %']);
   const mbPercentCol = getCol(['mb %', 'mb percent']);
-  const rejCol = getCol(['rejection (kg)', 'total rejection (kg)', 'total rej', 'rejection']);
+  
+  // Helper to test if a column is piece counts / numbers instead of weight in kg
+  const isPcsHeader = (h: string): boolean => {
+    const s = h.toLowerCase().trim();
+    // Never mark as PCS if it explicitly mentions kg/weight
+    if (s.includes('kg') || s.includes('k.g') || s.includes('kgs') || s.includes('weight') || s.includes('wt')) {
+      return false;
+    }
+    return (
+      s.includes('pcs') ||
+      s.includes('(pcs)') ||
+      s.includes('[pcs]') ||
+      s.includes(' pc') ||
+      s.includes('(pc)') ||
+      s.includes('[pc]') ||
+      s.includes('piece') ||
+      s.includes('pieces') ||
+      s.includes('nos') ||
+      s.includes('(nos)') ||
+      s.includes('[nos]') ||
+      s.includes('count') ||
+      s.includes('qty') ||
+      s.includes('quantity') ||
+      /\b(pcs|pc|nos|no|qty|count|piece|pieces)\b/i.test(s) ||
+      /\((pcs|pc|nos|no|qty|count)\)/i.test(s)
+    );
+  };
+
+  // -------------------------------------------------------------
+  // REJECTION COLUMN RESOLUTION:
+  // Must take value strictly from "Total Rejection (kg)" and NEVER from "Total Reject (Pcs)"!
+  // -------------------------------------------------------------
+  let rejKgCol = -1;
+  let rejPcsCol = -1;
+
+  // 1. Locate piece count column first to safely isolate and exclude it from weight
+  rejPcsCol = header.findIndex(
+    h =>
+      (h.includes('rejection') || h.includes('reject') || h.includes('rej')) &&
+      isPcsHeader(h)
+  );
+
+  // 2. Highest priority for Kg: Look for explicit Total Rejection in Kg
+  const totalRejKgNames = [
+    'total rejection (kg)',
+    'total rejection(kg)',
+    'total rejection [kg]',
+    'total rejection in kg',
+    'total rejection kg',
+    'total rejection kgs',
+    'total rejection (kgs)',
+    'total rejection (kg.)',
+    'total rejection (k.g)',
+    'total reject (kg)',
+    'total reject(kg)',
+    'total reject [kg]',
+    'total reject in kg',
+    'total reject kg',
+    'total rej (kg)',
+    'total rej(kg)',
+    'total rej. (kg)',
+    'rejection (kg)',
+    'rejection(kg)',
+    'rejection [kg]',
+    'rejection in kg',
+    'rejection kg',
+    'rejection kgs',
+    'rejection (kgs)',
+    'rejection (kg.)',
+    'rejection (k.g)',
+    'reject (kg)',
+    'reject(kg)',
+    'reject [kg]',
+    'reject in kg',
+    'reject kg',
+    'rej (kg)',
+    'rej(kg)',
+  ];
+
+  for (const name of totalRejKgNames) {
+    const idx = header.findIndex(
+      (h, i) => i !== rejPcsCol && h.includes(name) && !isPcsHeader(h)
+    );
+    if (idx !== -1) {
+      rejKgCol = idx;
+      break;
+    }
+  }
+
+  // 3. Second priority: Any column containing rejection/reject/rej AND kg/weight, but NOT pcs
+  if (rejKgCol === -1) {
+    rejKgCol = header.findIndex(
+      (h, i) =>
+        i !== rejPcsCol &&
+        (h.includes('rejection') || h.includes('reject') || h.includes('rej')) &&
+        (h.includes('kg') || h.includes('k.g') || h.includes('kgs') || h.includes('weight') || h.includes('wt')) &&
+        !isPcsHeader(h)
+    );
+  }
+
+  // 4. Third priority: Look for 'total rejection' or 'rejection' strictly excluding any piece column
+  if (rejKgCol === -1) {
+    rejKgCol = header.findIndex(
+      (h, i) =>
+        i !== rejPcsCol &&
+        (h.includes('total rejection') || h.includes('rejection')) &&
+        !isPcsHeader(h)
+    );
+  }
+
+  // 5. Fallback for rejPcsCol if not found earlier: Look for 'total reject' column if rejKgCol is different
+  if (rejPcsCol === -1) {
+    rejPcsCol = header.findIndex(
+      (h, i) =>
+        i !== rejKgCol &&
+        (h.includes('total reject') || h.includes('reject')) &&
+        (isPcsHeader(h) || !h.includes('kg'))
+    );
+  }
+
+  // 6. Strict sanity verification: rejKgCol and rejPcsCol MUST NEVER be the same column
+  if (rejKgCol !== -1 && rejPcsCol !== -1 && rejKgCol === rejPcsCol) {
+    rejPcsCol = -1;
+  }
+
+  // 7. Data-level sanity check:
+  // Sample 3-5 data rows. If rejKgCol was somehow matched to piece counts (e.g. huge integers > 100 with no decimals)
+  // while rejPcsCol has small decimal weights (e.g. 15.4, 33.99 kg), auto-correct and swap them!
+  if (rejKgCol !== -1 && rejPcsCol !== -1) {
+    let kgColIsLikelyPcs = 0;
+    let pcsColIsLikelyKg = 0;
+    const sampleLimit = Math.min(rows.length, dataStartIndex + 8);
+    for (let r = dataStartIndex; r < sampleLimit; r++) {
+      const vKg = cleanNumber(rows[r]?.[rejKgCol]);
+      const vPcs = cleanNumber(rows[r]?.[rejPcsCol]);
+      // If vKg is a large integer (> 100) and vPcs is smaller with decimals, or vKg > 10 * vPcs
+      if (vKg > 50 && Number.isInteger(vKg) && vPcs > 0 && vPcs < vKg) {
+        kgColIsLikelyPcs++;
+      }
+      if (vPcs > 0 && !Number.isInteger(vPcs) && vKg > vPcs) {
+        pcsColIsLikelyKg++;
+      }
+    }
+    if (kgColIsLikelyPcs >= 2 || (kgColIsLikelyPcs >= 1 && pcsColIsLikelyKg >= 1)) {
+      // Swap columns so that rejKgCol strictly holds the Kg weight!
+      const temp = rejKgCol;
+      rejKgCol = rejPcsCol;
+      rejPcsCol = temp;
+    }
+  }
+
   const matConsCol = getCol(['material consumption (kg)', 'total rm consumption', 'consumption (kg)', 'consumption']);
   const mixRetCol = getCol(['mixing return (kg)', 'mixing return', 'return']);
   const unitCol = getCol(['unit']);
 
   const parsedItems: ProductionItem[] = [];
 
-  for (let i = headerIndex + 1; i < rows.length; i++) {
+  for (let i = dataStartIndex; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.length === 0) continue;
 
@@ -134,7 +328,8 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
     const rmPercent = rmPercentCol !== -1 ? cleanNumber(row[rmPercentCol]) : 0;
     const fmbPercent = fmbPercentCol !== -1 ? cleanNumber(row[fmbPercentCol]) : 0;
     const mbPercent = mbPercentCol !== -1 ? cleanNumber(row[mbPercentCol]) : 0;
-    const totalRejection = rejCol !== -1 ? cleanNumber(row[rejCol]) : 0;
+    const totalRejection = rejKgCol !== -1 ? cleanNumber(row[rejKgCol]) : 0;
+    const totalRejectionPcs = rejPcsCol !== -1 ? cleanNumber(row[rejPcsCol]) : undefined;
     const totalRmConsumption = matConsCol !== -1 ? cleanNumber(row[matConsCol]) : 0;
     const mixingReturn = mixRetCol !== -1 ? cleanNumber(row[mixRetCol]) : 0;
 
@@ -183,7 +378,8 @@ export function parseProductionCsv(csvText: string, defaultUnit: 'Unit-1' | 'Uni
       mbPercent,
       totalRmConsumption,
       mixingReturn,
-      totalRejection,
+      totalRejection, // Strictly from "Total Rejection (kg)"
+      totalRejectionPcs, // Total Reject (Pcs)
       unit: detectedUnit,
       section,
     });
@@ -397,4 +593,88 @@ export function parseRegrindBalanceCsv(csvText: string): RegrindBalanceItem[] {
   }
 
   return items;
+}
+
+/**
+ * Parses SKU Similar Name Mapping CSV/Text
+ * Expected columns:
+ * - Regrind SKU Name (or SKU Name, Regrind Name, Similar Regrind Name)
+ * - Production SKU Name (or Production Item Name, Item Name, Product Name, Similar Production Name)
+ * - Optional: Color, Notes
+ */
+export function parseSkuMappingCsv(csvContent: string): SkuNameMapping[] {
+  if (!csvContent || typeof csvContent !== 'string') return [];
+
+  const results = Papa.parse<string[]>(csvContent.trim(), {
+    header: false,
+    skipEmptyLines: 'greedy',
+  });
+
+  const rows = results.data;
+  if (!rows || rows.length < 2) return [];
+
+  let headerIndex = 0;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const rowStr = rows[i].map(c => cleanString(c).toLowerCase()).join(' ');
+    if (
+      (rowStr.includes('regrind') && rowStr.includes('production')) ||
+      (rowStr.includes('sku') && rowStr.includes('item')) ||
+      rowStr.includes('similar') ||
+      rowStr.includes('mapping')
+    ) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  const header = rows[headerIndex].map(c => cleanString(c).toLowerCase());
+  const getCol = (names: string[]): number =>
+    header.findIndex(h => names.some(n => h.includes(n.toLowerCase())));
+
+  let regrindCol = getCol([
+    'regrind sku name',
+    'regrind sku',
+    'regrind name',
+    'regrind',
+    'sku name',
+    'sku',
+  ]);
+  let prodCol = getCol([
+    'production sku name',
+    'production sku',
+    'production item name',
+    'production name',
+    'production',
+    'item name',
+    'product name',
+    'similar name',
+  ]);
+  const colorCol = getCol(['color', 'colour']);
+  const notesCol = getCol(['notes', 'remark', 'remarks', 'reason', 'alias']);
+
+  // If header detection fails to distinguish, assume column 0 is Regrind and column 1 is Production
+  if (regrindCol === -1 && rows[headerIndex].length >= 2) regrindCol = 0;
+  if (prodCol === -1 && rows[headerIndex].length >= 2) prodCol = regrindCol === 0 ? 1 : 0;
+
+  const mappings: SkuNameMapping[] = [];
+
+  for (let i = headerIndex + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+
+    const regrindSkuName = regrindCol !== -1 && row[regrindCol] ? cleanString(row[regrindCol]) : '';
+    const productionSkuName = prodCol !== -1 && row[prodCol] ? cleanString(row[prodCol]) : '';
+
+    if (!regrindSkuName || !productionSkuName) continue;
+
+    mappings.push({
+      id: `map-import-${Date.now()}-${i}`,
+      regrindSkuName,
+      productionSkuName,
+      color: colorCol !== -1 && row[colorCol] ? cleanString(row[colorCol]) : undefined,
+      notes: notesCol !== -1 && row[notesCol] ? cleanString(row[notesCol]) : 'Imported mapping',
+    });
+  }
+
+  return mappings;
 }

@@ -9,6 +9,7 @@ import {
   SkuRegrindVsRejectionItem,
   DailyReportSnapshot,
   GoogleSheetConfig,
+  SkuNameMapping,
 } from './types';
 import { StorageService } from './services/storageService';
 import { computeReconciliationRows, computeSkuRegrindVsRejection } from './utils/reconciliation';
@@ -22,6 +23,7 @@ import { GoogleSheetSettingsModal } from './components/GoogleSheetSettingsModal'
 import { HistoryModal } from './components/HistoryModal';
 import { PrintReportModal } from './components/PrintReportModal';
 import { AccessLinkModal } from './components/AccessLinkModal';
+import { SkuMappingModal } from './components/SkuMappingModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { CheckCircle2, AlertTriangle, X, History, Trash2, ArrowRight } from 'lucide-react';
 
@@ -63,6 +65,12 @@ export default function App() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [isAccessLinkOpen, setIsAccessLinkOpen] = useState(false);
+  const [isSkuMappingOpen, setIsSkuMappingOpen] = useState(false);
+
+  // SKU Similar Name Mappings Dictionary
+  const [skuMappings, setSkuMappings] = useState<SkuNameMapping[]>(() =>
+    StorageService.getSkuMappings()
+  );
 
   // Toast Notification
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -108,12 +116,13 @@ export default function App() {
   }, [loadedArchiveSnapshot, tallyOutwards, productionData, customStocks]);
 
   // Compute live SKU Wise Regrind vs Rejection rows or use snapshot rows if an archive is loaded
+  // Uses active SKU Similar Name Mappings Dictionary
   const skuRegrindRows: SkuRegrindVsRejectionItem[] = useMemo(() => {
     if (loadedArchiveSnapshot) {
       return loadedArchiveSnapshot.skuRegrindRows;
     }
-    return computeSkuRegrindVsRejection(regrindBalance, productionData, selectedSection);
-  }, [loadedArchiveSnapshot, regrindBalance, productionData, selectedSection]);
+    return computeSkuRegrindVsRejection(regrindBalance, productionData, selectedSection, skuMappings);
+  }, [loadedArchiveSnapshot, regrindBalance, productionData, selectedSection, skuMappings]);
 
   // Build current snapshot object for saving
   const currentSnapshot: DailyReportSnapshot = useMemo(() => {
@@ -276,6 +285,20 @@ export default function App() {
     showToast('All daily archives cleared. Dashboard and reports updated to clean state.', 'info');
   };
 
+  // Save SKU Similar Name Mappings
+  const handleSaveSkuMappings = (updated: SkuNameMapping[]) => {
+    setSkuMappings(updated);
+    StorageService.saveSkuMappings(updated);
+    showToast(`Updated ${updated.length} SKU similar name mappings!`, 'success');
+  };
+
+  // Reset SKU Mappings to Factory Default
+  const handleResetSkuMappings = () => {
+    const def = StorageService.resetSkuMappingsToDefault();
+    setSkuMappings(def);
+    showToast('Reset SKU name mappings to ASTECH factory default dictionary!', 'success');
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Application Navbar */}
@@ -345,6 +368,8 @@ export default function App() {
             items={skuRegrindRows}
             selectedUnit={selectedUnit}
             selectedDate={selectedDate}
+            onOpenSkuMappings={() => setIsSkuMappingOpen(true)}
+            skuMappingsCount={skuMappings.length}
           />
         )}
       </main>
@@ -497,9 +522,27 @@ export default function App() {
           setHasUnsavedChanges(true);
           showToast(`Successfully imported and combined all selected files!`, 'success');
         }}
+        onImportSkuMappings={newMappings => {
+          const existingKeys = new Set(
+            skuMappings.map(m => `${m.regrindSkuName.toLowerCase()}__${m.productionSkuName.toLowerCase()}`)
+          );
+          const filtered = newMappings.filter(
+            m => !existingKeys.has(`${m.regrindSkuName.toLowerCase()}__${m.productionSkuName.toLowerCase()}`)
+          );
+          const merged = [...filtered, ...skuMappings];
+          handleSaveSkuMappings(merged);
+        }}
         onLoadSampleData={handleLoadSampleData}
         selectedUnit={selectedUnit}
         selectedDate={selectedDate}
+      />
+
+      <SkuMappingModal
+        isOpen={isSkuMappingOpen}
+        onClose={() => setIsSkuMappingOpen(false)}
+        mappings={skuMappings}
+        onSaveMappings={handleSaveSkuMappings}
+        onResetDefault={handleResetSkuMappings}
       />
 
       <GoogleSheetSettingsModal

@@ -201,7 +201,14 @@ export const PrintReportModal: React.FC<PrintReportModalProps> = ({
               <tbody>
                 {skuRegrindRows.slice(0, 20).map(s => (
                   <tr key={s.id} className="even:bg-slate-50">
-                    <td className="border border-slate-300 p-1 font-medium">{s.skuName}</td>
+                    <td className="border border-slate-300 p-1 font-medium">
+                      <div>{s.skuName}</div>
+                      {s.matchedItemName && s.matchedItemName.toLowerCase() !== s.skuName.toLowerCase() && (
+                        <div className="text-[9px] text-slate-500 font-normal font-sans">
+                          Prod: {s.matchedItemName}
+                        </div>
+                      )}
+                    </td>
                     <td className="border border-slate-300 p-1">{s.color}</td>
                     <td className="border border-slate-300 p-1 text-right font-mono">{s.regrindProducedKg.toFixed(1)}</td>
                     <td className="border border-slate-300 p-1 text-right font-mono">{s.productionRejectionKg.toFixed(1)}</td>

@@ -15,11 +15,13 @@ import {
   Database,
   Factory,
   Recycle,
+  ArrowRightLeft,
 } from 'lucide-react';
 import {
   parseProductionCsv,
   parseTallyOutwardsCsv,
   parseRegrindBalanceCsv,
+  parseSkuMappingCsv,
   cleanString,
 } from '../utils/csvParser';
 import {
@@ -28,6 +30,7 @@ import {
   RegrindBalanceItem,
   UnitType,
   ProductionSection,
+  SkuNameMapping,
 } from '../types';
 
 export interface QueuedFile {
@@ -52,6 +55,7 @@ interface ImportModalProps {
   onImportProduction: (items: ProductionItem[], mode?: 'merge' | 'replace') => void;
   onImportTally: (items: TallyOutwardItem[], mode?: 'merge' | 'replace') => void;
   onImportRegrind: (items: RegrindBalanceItem[], mode?: 'merge' | 'replace') => void;
+  onImportSkuMappings?: (mappings: SkuNameMapping[]) => void;
   onImportBatch: (batch: {
     productionItems: ProductionItem[];
     tallyItems: TallyOutwardItem[];
@@ -69,6 +73,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   onImportProduction,
   onImportTally,
   onImportRegrind,
+  onImportSkuMappings,
   onImportBatch,
   onLoadSampleData,
   selectedUnit,
@@ -82,7 +87,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
   const multiFileInputRef = useRef<HTMLInputElement>(null);
 
   // Single file / Paste state
-  const [singleType, setSingleType] = useState<'production' | 'tally' | 'regrind'>('production');
+  const [singleType, setSingleType] = useState<'production' | 'tally' | 'regrind' | 'mapping'>('production');
   const [pastedText, setPastedText] = useState('');
   const [singlePreviewCount, setSinglePreviewCount] = useState<number | null>(null);
   const singleFileInputRef = useRef<HTMLInputElement>(null);
@@ -328,6 +333,16 @@ export const ImportModal: React.FC<ImportModalProps> = ({
         }
         onImportRegrind(parsed, importMode);
         setSuccessMsg(`Imported ${parsed.length} SKU regrind balance records!`);
+      } else if (singleType === 'mapping') {
+        const parsed = parseSkuMappingCsv(pastedText);
+        if (parsed.length === 0) {
+          setErrorMsg('Could not parse any SKU similar name mapping rows.');
+          return;
+        }
+        if (onImportSkuMappings) {
+          onImportSkuMappings(parsed);
+        }
+        setSuccessMsg(`Imported ${parsed.length} SKU similar name mappings!`);
       }
 
       setTimeout(() => {
@@ -607,7 +622,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
                   Select Single File Category:
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => setSingleType('production')}
@@ -652,6 +667,21 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                       SKU Name, Period Produced, Balances
                     </div>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSingleType('mapping')}
+                    className={`p-3 rounded-xl border text-left transition ${
+                      singleType === 'mapping'
+                        ? 'bg-purple-950/60 border-purple-500 text-purple-300'
+                        : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="font-semibold text-xs text-white">4. SKU Similar Names Mapping</div>
+                    <div className="text-[10px] mt-0.5 text-slate-400">
+                      Regrind SKU Name &harr; Production SKU Name
+                    </div>
+                  </button>
                 </div>
               </div>
 
@@ -668,15 +698,21 @@ export const ImportModal: React.FC<ImportModalProps> = ({
                 <textarea
                   rows={5}
                   value={pastedText}
-                  placeholder="Paste CSV rows here..."
+                  placeholder={
+                    singleType === 'mapping'
+                      ? 'Paste mapping CSV rows here (e.g. "Regrind SKU Name, Production SKU Name")...'
+                      : 'Paste CSV rows here...'
+                  }
                   onChange={e => {
                     setPastedText(e.target.value);
                     if (singleType === 'production') {
                       setSinglePreviewCount(parseProductionCsv(e.target.value, 'Unit-1').length);
                     } else if (singleType === 'tally') {
                       setSinglePreviewCount(parseTallyOutwardsCsv(e.target.value, selectedDate).length);
-                    } else {
+                    } else if (singleType === 'regrind') {
                       setSinglePreviewCount(parseRegrindBalanceCsv(e.target.value).length);
+                    } else {
+                      setSinglePreviewCount(parseSkuMappingCsv(e.target.value).length);
                     }
                   }}
                   className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-hidden focus:border-cyan-500"

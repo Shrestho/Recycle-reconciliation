@@ -26,6 +26,7 @@ export function exportSkuRegrindToCsv(items: SkuRegrindVsRejectionItem[], date: 
     'Recycle Source': item.recycleSource,
     'Regrind Produced (Kg)': item.regrindProducedKg.toFixed(2),
     'Production Rejection (Kg)': item.productionRejectionKg.toFixed(2),
+    'Production Rejection (Pcs)': item.productionRejectionPcs ? item.productionRejectionPcs : '',
     'Crushed Delta (Kg)': item.crushedDeltaKg.toFixed(2),
     'Recovery Rate %': item.recoveryRatePercent.toFixed(1) + '%',
     'Opening Balance (Kg)': item.openingBalanceKg.toFixed(2),

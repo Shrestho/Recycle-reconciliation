@@ -12,6 +12,7 @@ import {
   Factory,
   Layers,
   Sparkles,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { SkuRegrindVsRejectionItem, UnitType, ProductionSection } from '../types';
 import { exportSkuRegrindToCsv, copyTableToClipboardForGoogleSheets } from '../utils/exportUtils';
@@ -20,12 +21,16 @@ interface RegrindReportViewProps {
   items: SkuRegrindVsRejectionItem[];
   selectedUnit: UnitType;
   selectedDate: string;
+  onOpenSkuMappings?: () => void;
+  skuMappingsCount?: number;
 }
 
 export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
   items,
   selectedUnit,
   selectedDate,
+  onOpenSkuMappings,
+  skuMappingsCount = 0,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sourceFilter, setSourceFilter] = useState('All');
@@ -128,6 +133,7 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
       'Recycle Source',
       'Regrind Produced (Period Produced Kg)',
       'Production Rejection (Kg)',
+      'Production Rejection (Pcs)',
       'Crushed Delta (Kg)',
       'Recovery Rate %',
       'Opening Balance (Kg)',
@@ -145,6 +151,7 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
       i.recycleSource,
       i.regrindProducedKg,
       i.productionRejectionKg,
+      i.productionRejectionPcs || '',
       i.crushedDeltaKg,
       i.recoveryRatePercent + '%',
       i.openingBalanceKg,
@@ -175,11 +182,27 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            Comparing <strong>"Period Produced (Kg)"</strong> (from Regrind Stock Report) with <strong>"Rejection (kg) / Total Rejection (kg)"</strong> (from Production Blow & Injection Report).
+            Comparing <strong>"Period Produced (Kg)"</strong> (from Regrind Stock Report) with strictly <strong>"Total Rejection (kg)"</strong> (from Production Report).
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          {onOpenSkuMappings && (
+            <button
+              onClick={onOpenSkuMappings}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-950/70 hover:bg-emerald-900/60 border border-emerald-800/70 text-emerald-300 text-xs font-semibold transition"
+              title="Manage Similar Name Mappings between Regrind SKU and Production SKU"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Similar SKU Names</span>
+              {skuMappingsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-emerald-800 text-[10px] text-white font-bold">
+                  {skuMappingsCount}
+                </span>
+              )}
+            </button>
+          )}
+
           <button
             onClick={handleCopyForSheets}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition"
@@ -335,11 +358,11 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
                     <ArrowUpDown className="w-3 h-3" />
                   </button>
                 </th>
-                <th className="py-3 px-2 text-right bg-amber-950/40 text-amber-300 font-semibold min-w-[120px]">
+                <th className="py-3 px-2 text-right bg-amber-950/40 text-amber-300 font-semibold min-w-[125px]">
                   <button
                     onClick={() => toggleSort('productionRejectionKg')}
                     className="flex items-center justify-end gap-1 hover:text-white w-full text-right"
-                    title="Column: Rejection (kg) / Total Rejection (kg) from Production Report"
+                    title="Column: Strictly from 'Total Rejection (kg)' column in Production Report"
                   >
                     <span>Prod. Rejection (Kg)</span>
                     <ArrowUpDown className="w-3 h-3" />
@@ -384,17 +407,38 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
 
                   return (
                     <tr key={row.id} className="hover:bg-slate-800/40 transition">
-                      {/* SKU Name & Fuzzy Matched Item Name */}
+                      {/* SKU Name & Matched Production Item Name */}
                       <td className="py-2.5 px-3">
-                        <div className="font-semibold text-slate-200">{row.skuName}</div>
-                        {isDifferentName && (
-                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-cyan-400">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            <span>Matched Prod: {row.matchedItemName}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-slate-100">{row.skuName}</span>
+                          {row.matchType === 'alias' && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800/60" title="Matched via Similar Name Dictionary">
+                              <ArrowRightLeft className="w-2.5 h-2.5" />
+                              <span>Similar Name Mapped</span>
+                            </span>
+                          )}
+                          {row.matchType === 'close' && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-blue-950 text-blue-300 border border-blue-800/50" title="Close fuzzy token match">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              <span>Close Match</span>
+                            </span>
+                          )}
+                          {row.matchType === 'none' && (
+                            <span className="px-1.5 py-0.2 rounded-full text-[9px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                              Unmatched
+                            </span>
+                          )}
+                        </div>
+
+                        {row.matchedItemName && (
+                          <div className="flex items-center gap-1 mt-1 text-[11px] text-cyan-300/90 font-medium">
+                            <span className="text-slate-500 text-[10px]">Prod SKU:</span>
+                            <span className="font-mono">{row.matchedItemName}</span>
                           </div>
                         )}
+
                         {row.rmGrade && (
-                          <div className="text-[10px] text-slate-500 truncate max-w-[240px]">
+                          <div className="text-[10px] text-slate-500 truncate max-w-[240px] mt-0.5">
                             RM: {row.rmGrade}
                           </div>
                         )}
@@ -430,9 +474,14 @@ export const RegrindReportView: React.FC<RegrindReportViewProps> = ({
                         {row.regrindProducedKg.toFixed(2)}
                       </td>
 
-                      {/* Production Rejection from Rejection (kg) */}
+                      {/* Production Rejection strictly from Total Rejection (kg) */}
                       <td className="py-2.5 px-2 text-right font-mono font-bold text-amber-300 bg-amber-950/15">
-                        {row.productionRejectionKg.toFixed(2)}
+                        <div>{row.productionRejectionKg.toFixed(2)}</div>
+                        {row.productionRejectionPcs !== undefined && row.productionRejectionPcs > 0 && (
+                          <div className="text-[10px] text-slate-400 font-normal font-sans tracking-normal" title="Total Reject (Pcs) from production file">
+                            {row.productionRejectionPcs.toLocaleString()} Pcs
+                          </div>
+                        )}
                       </td>
 
                       {/* Crushed Delta (Kg) */}

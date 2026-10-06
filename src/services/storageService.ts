@@ -6,12 +6,14 @@ import {
   ProductionItem,
   TallyOutwardItem,
   RegrindBalanceItem,
+  SkuNameMapping,
 } from '../types';
 import {
   INITIAL_PRODUCTION_DATA,
   INITIAL_TALLY_OUTWARDS,
   INITIAL_REGRIND_BALANCE,
 } from '../data/initialData';
+import { DEFAULT_SKU_MAPPINGS } from '../data/defaultSkuMappings';
 import { computeSkuRegrindVsRejection, computeReconciliationRows } from '../utils/reconciliation';
 
 const STORAGE_KEYS = {
@@ -24,6 +26,7 @@ const STORAGE_KEYS = {
   TALLY_OUTWARDS: 'astech_tally_outwards_v3',
   REGRIND_BALANCE: 'astech_regrind_balance_v3',
   DEMO_CLEARED_FLAG: 'astech_demo_cleared_v3',
+  SKU_MAPPINGS: 'astech_sku_mappings_v1',
 };
 
 // Automatic one-time cleanup of old demo/seeded data from previous versions
@@ -255,5 +258,29 @@ export const StorageService = {
       regrind: INITIAL_REGRIND_BALANCE,
       snapshot,
     };
+  },
+
+  // SKU Name Mappings (Regrind SKU Name <-> Production SKU / Item Name)
+  getSkuMappings(): SkuNameMapping[] {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SKU_MAPPINGS);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Error reading sku mappings:', e);
+    }
+    return DEFAULT_SKU_MAPPINGS;
+  },
+
+  saveSkuMappings(mappings: SkuNameMapping[]) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SKU_MAPPINGS, JSON.stringify(mappings));
+    } catch (e) {
+      console.error('Error saving sku mappings:', e);
+    }
+  },
+
+  resetSkuMappingsToDefault(): SkuNameMapping[] {
+    this.saveSkuMappings(DEFAULT_SKU_MAPPINGS);
+    return DEFAULT_SKU_MAPPINGS;
   },
 };

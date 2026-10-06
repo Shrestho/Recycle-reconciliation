@@ -25,7 +25,8 @@ export interface ProductionItem {
   mbPercent: number; // MB %
   totalRmConsumption: number; // Material consumption (kg)
   mixingReturn: number; // Mixing Return (kg)
-  totalRejection: number; // Rejection (kg) / Total Rejection (kg)
+  totalRejection: number; // Strictly from Total Rejection (kg) column
+  totalRejectionPcs?: number; // Total Reject (Pcs) if present in file
   unit?: 'Unit-1' | 'Unit-2';
   section?: 'Blow' | 'Injection' | 'Other'; // Production section: Blow vs Injection
   machineSerial?: string; // e.g. BM-U1-02, IBM-U1-01
@@ -65,7 +66,8 @@ export interface SkuRegrindVsRejectionItem {
   color: string;
   recycleSource: string;
   regrindProducedKg: number; // Regrind produced (crushed) from Period Produced (Kg)
-  productionRejectionKg: number; // Total Rejection (Kg) from Production Rejection (kg)
+  productionRejectionKg: number; // Total Rejection (Kg) strictly from "Total Rejection (kg)" column
+  productionRejectionPcs?: number; // Total Reject (Pcs) if present in file
   crushedDeltaKg: number; // regrindProduced - productionRejection
   recoveryRatePercent: number; // (regrindProduced / productionRejection) * 100
   openingBalanceKg: number;
@@ -139,4 +141,12 @@ export interface GoogleSheetConfig {
   lastSyncedAt?: string;
   status: 'idle' | 'syncing' | 'success' | 'error';
   errorMessage?: string;
+}
+
+export interface SkuNameMapping {
+  id: string;
+  regrindSkuName: string; // SKU Name in Regrind Stock Report
+  productionSkuName: string; // Similar / matched Item Name in Production report
+  color?: string; // Optional specific color constraint
+  notes?: string;
 }
